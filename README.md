@@ -42,11 +42,15 @@ Touch layout and pointer behavior have been verified with browser mobile viewpor
 
 The first normal run offers a four-stage guided flight: move the Vesper, extract a Flux crystal, follow its targeting bracket to collect it, and review the Fabricator–construction–Nova mission loop. Progress comes from gameplay events rather than a particular control device, so keyboard, gamepad, and touch all advance the same tutorial and actions completed ahead of a prompt are remembered. Fabricator deliveries wait until training ends. **Skip** exits at any stage; normal completion or skipping is saved locally so the tutorial does not repeat. Open **Help** and choose **Replay guided flight** to run it again without changing that saved first-run state.
 
+When browser speech synthesis is available, the optional Vesper flight-guide **Voice** defaults on and speaks each tutorial step once from an original, input-neutral script. A compact **Voice on/off** control appears on the first-flight title and in **Help**, and its preference is stored as `voidforge-guide-voice`. **Sound** remains the master: muting it cancels and suppresses game audio, guide speech, and the Dread Engine's low-pitch dialogue without changing the Voice preference. Muted, disabled, hidden, or unsupported cues are never queued for later playback.
+
 Laser fire mines planetoids as well as attacking enemies. Held fire still builds extraction progress and can release Flux, making touch mining forgiving. Short controlled bursts damage the planetoid less and remain the more efficient way to recover its crystals before it breaks.
 
 ## Accessibility and display
 
-The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
+The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, the master Sound control, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Visible coachmarks and notices remain authoritative, and the polite live-region fallback stays active whenever Voice is off, master Sound is muted, or speech synthesis is unavailable. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
+
+Guide and Engine lines use browser/system speech voices, whose availability and character vary by browser and operating system. VOIDFORGE ships no recorded or reference-derived voice assets.
 
 The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. The particle-heavy bombardment profile measured 60 FPS at both target resolutions, with a 16.8 ms p95 frame time at 4K. See the [1080p](artifacts/performance-1920x1080.json) and [4K](artifacts/performance-3840x2160.json) performance captures.
 
@@ -63,6 +67,7 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/VoidforgeGame.tsx` — PixiJS WebGL renderer, simulation, adaptive presentation, entity damage/wreckage, camera, tactical HUD, and deterministic showcase scenes
 - `app/game/postfx.ts` — custom WebGL post-processing, cinematic danger framing, and scene-wide accessibility color transforms
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
+- `app/game/spoken-guidance.mjs` — original guide/Engine copy, persisted Voice policy, cue allowlists, and no-backlog gating
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
@@ -82,6 +87,8 @@ npm run lint
 Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, and `gameover`.
 
 Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
+
+Automated spoken-guidance checks cover every tutorial line, the selected mission-cue allowlist, once-per-run delivery, the Voice storage-key contract, and no backlog after muted, disabled, hidden, or unsupported cues. Browser checks should confirm the default and persisted Voice choice, Sound-master precedence, immediate cancellation on pause, page hide, game over, Skip, master mute, Voice off, and teardown, and continued visible/live-region guidance.
 
 Mobile layout captures: [844×390 landscape](artifacts/screenshots/mobile-landscape-844x390.jpg) and [390×844 portrait](artifacts/screenshots/mobile-portrait-390x844.jpg).
 

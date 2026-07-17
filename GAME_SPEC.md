@@ -85,6 +85,7 @@ The normal first run is a short, non-modal guided flight layered over active pla
 - Fabricator deliveries are held while training is active, and the emitted tutorial crystal receives a persistent shape-based targeting bracket so the learning flow cannot be overtaken by construction or an ambiguous pickup.
 - **Skip** is available at every stage. In the ordinary first-run path, either Skip or completion writes `voidforge-tutorial-v1-complete=true`, preventing the tutorial from appearing on later launches.
 - **Help → Replay guided flight** starts again at Move without clearing or rewriting the saved first-run result.
+- When speech synthesis is supported, the Vesper flight-guide Voice defaults on and speaks each stage once on entry using original input-neutral copy. The first-flight title and Help expose compact Voice on/off controls, persisted as `voidforge-guide-voice`.
 - `?tutorial=1` forces the normal advancing flow and `?tutorial=0` suppresses it. `?tutorial=move|mine|collect|threat` forces and pins one deterministic stage; `threat` represents Mission loop. All explicit tutorial overrides take precedence and are non-persistent.
 - In the absence of an explicit tutorial override, `?showcase=...` and `?profile=1` suppress onboarding so deterministic captures and performance samples remain unchanged.
 
@@ -163,9 +164,13 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Weapons and impacts use original synthesized transients with stereo positioning and distance rolloff.
 - Every installed module adds a mechanical strike and another element to the adaptive rhythm bed.
 - At 5, 10, 15, and 19 modules, original warning motifs escalate without speech spam.
-- Awakening uses an original processed transmission: **“Containment has failed.”** No line, cadence, roar, or performance from the reference game is imitated.
+- The optional Vesper flight guide uses browser speech synthesis for tutorial-step entry and training completion. Outside training, its mission-cue allowlist is limited to mission start, assembly critical, and Engine awake.
+- The Dread Engine uses separate original low-pitch browser-synthesized dialogue at activation and destruction. No line, cadence, roar, performance, sample, or recording from the reference game is imitated.
+- **Sound** is the master for Web Audio and all speech. The subordinate **Voice** preference defaults on when speech is supported, persists as `voidforge-guide-voice`, and never bypasses a muted Sound master.
+- A new guide or Engine line may cancel or follow the current line according to the cue, but suppressed cues are consumed: muted, Voice-off, hidden, or unsupported events never form a backlog that plays after conditions change.
+- Pause, page hide, game over, Skip, Sound mute, Voice off, and teardown cancel active speech.
 - Dread Engine proximity adds a low pulse; damage removes layers until the core collapses.
-- Audio, music, voice, and low-frequency intensity have separate controls.
+- Browser and operating-system voice inventories vary. All guide and Engine text is original, and no recorded voice assets ship.
 
 ## Accessibility
 
@@ -173,11 +178,12 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Reduced Flashing: replaces full-screen flashes with localized halos and limits luminance transitions
 - Effect Intensity: Low / Standard / High particle and bloom presets
 - Three scene-wide color-vision transforms plus shape-coded contacts and meters
-- Independent master, effects, music, voice, and bass controls
+- Master Sound plus a subordinate persisted Voice control on the first-flight title and in Help
 - Rebindable keyboard actions and adjustable gamepad dead zone
 - Toggle/hold options for primary fire; pause on focus loss
 - Swappable touch handedness, safe-area-aware portrait/landscape layouts, and action targets sized for touch
-- Device-appropriate tutorial copy, an always-available Skip action, and polite live announcements for stage changes
+- Device-appropriate visible tutorial copy, an always-available Skip action, and polite live announcements whenever spoken guidance is off or unavailable
+- Every spoken tutorial or mission cue duplicates an authoritative visible coachmark or notice; speech is never required to play
 - Critical alerts delivered by icon, text, and sound; no essential information depends on color or audio alone
 
 ## Game states and progression
@@ -195,7 +201,9 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Browser mobile-viewport and pointer-event checks cover portrait/landscape layout, pointer capture and cancellation, safe-area rules, and background auto-pause. Physical-device mobile Safari and Chrome validation remains pending.
 - Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
+- Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
+- Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight, skip or replay it, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

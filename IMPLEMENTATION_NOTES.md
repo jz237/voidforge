@@ -20,7 +20,7 @@ This document records deliberate differences from *Sinistar*. It is a production
 | World | Native widescreen wrapping arena with directional camera lead, threat zoom, story landmarks, and persistent wreckage |
 | Graphics | Material-family 2D WebGL art, headroom-gated 4K microdetail, intent-driven animation, staged damage, and restrained cinematic post-processing |
 | Interface | Contextual holographic HUD, player-relative radar trails, targeting brackets, off-screen warnings, and explicit construction ticks |
-| Audio | Original Web Audio synthesis, adaptive layers, a restrained visual-cadence envelope, spatial effects, and new transmissions |
+| Audio | Original Web Audio synthesis, adaptive layers, spatial effects, optional browser-spoken Vesper guidance, and original low-pitch Engine dialogue |
 | Controls | Keyboard/gamepad plus responsive touch twin sticks, six-band thrust, independent aim/held fire, one-tap Nova, and swappable handedness |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
 | Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
@@ -43,7 +43,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Create all raster assets specifically for this project, or render original shapes procedurally.
 - Record the source and license of any third-party font, texture, or library in the repository before use.
 - Keep research references outside the runtime bundle.
-- Avoid the reference game's famous dialogue, close paraphrases, vocal cadence, and roar design. Approved activation copy is `Containment has failed.`
+- Use only original project copy with browser/system speech synthesis. Do not ship recorded, sampled, cloned, or reference-derived guide or antagonist voice assets.
+- Avoid the reference game's famous dialogue, close paraphrases, vocal cadence, and roar design. The shipped Engine lines—`Signal acquired. Vesper identified.` and `Containment lost. The forge is broken.`—are original project copy rendered only through browser/system speech.
 - Avoid using `Sinistar`, `Sinibomb`, `Sinisite`, its zone names, or Williams branding in shipped UI, metadata, filenames, and asset identifiers.
 
 ## Technical choices
@@ -55,6 +56,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Keep the four-stage tutorial state machine in `app/game/tutorial.mjs`, independent of Pixi and input hardware. It records movement, extraction, and collection facts so actions performed before their coachmark still satisfy the corresponding stage.
 - Suppress Fabricator deposits only while the training overlay is active, protect the tutorial pickup from worker claims, and give that pickup priority in the existing targeting reticle. Normal simulation resumes immediately after Skip or Begin mission.
 - Store ordinary completion or Skip under the versioned `voidforge-tutorial-v1-complete` key. Help replay and every explicit `tutorial` query override are non-persistent; valid overrides take precedence, while showcase/profile runs suppress onboarding by default.
+- Keep spoken cue copy and gating in `app/game/spoken-guidance.mjs`. Persist the subordinate Voice choice as `voidforge-guide-voice`, default it on only when speech synthesis is supported, and consume suppressed cue IDs so enabling audio later cannot release stale guidance.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - Let rapid held fire continue accumulating mining progress so touch players cannot become stuck, while retaining the higher integrity cost that makes short controlled bursts more efficient.
 - Pool or cap shots, charges, enemy projectiles, persistent wreckage, debris, and high-frequency particles.
@@ -94,6 +96,12 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 - Synthesize or record all effects anew; do not process reference samples.
 - Threat state must be readable without speech. Construction rhythm, warning tones, scanner animation, and text provide redundancy.
+- Sound is the master for the Web Audio graph, Vesper guide, and Engine dialogue. Voice on/off is a persisted subordinate choice available on the first-flight title and in Help, not a way to bypass master mute.
+- Speak each tutorial stage once on entry from input-neutral original copy. Outside tutorial completion, guide mission cues are restricted to mission start, assembly critical, and Engine awake; Engine activation and destruction may use their separate original low-pitch dialogue.
+- Muted, Voice-off, hidden, and unsupported cues are consumed without playback or queuing. Unmuting or re-enabling Voice never drains a stale backlog.
+- Pause, page hide, game over, Skip, master mute, Voice off, and teardown cancel any active browser utterance.
+- Visible coachmarks and notices are authoritative. When guide speech is disabled or unavailable, the polite live region remains active so no instruction or warning depends on browser speech.
+- Browser/system voice selection and rendering vary by platform; do not depend on a particular installed voice, timbre, language variant, or timing.
 - Spatial rolloff must not hide critical warnings.
 - Sub-bass is optional and separately adjustable.
 - Browser audio begins only after user interaction and resumes safely after focus changes.
@@ -108,6 +116,7 @@ Required for the first complete release:
 - Score, high score, three hulls, charge inventory, pause, game over, and restart
 - Keyboard, gamepad, and responsive touch controls for phone portrait and landscape
 - Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, and deterministic QA overrides
+- Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
 - Deterministic test mode, mechanic tests, browser smoke test, and the eight required screenshot states at 1080p and 4K
@@ -124,6 +133,12 @@ Deferred unless time permits: additional arena modifiers, persistent settings, e
 - [ ] Reduced Motion, Reduced Flashing, and color-vision presets are verified in play.
 - [ ] Keyboard, gamepad, and browser-simulated touch input can complete the full loop.
 - [ ] Move, Extract, Collect, and Mission loop tutorial stages advance from gameplay events regardless of input device or action ordering.
+- [ ] Voice defaults on only when supported, persists as `voidforge-guide-voice`, and is controllable from the first-flight title and Help.
+- [ ] Sound master mute overrides game audio, Vesper guidance, and Engine dialogue without rewriting the subordinate Voice preference.
+- [ ] Every tutorial stage speaks at most once per run; guide mission speech is limited to start, assembly critical, and Engine awake, plus separate original low-pitch Engine dialogue.
+- [ ] Muted, Voice-off, hidden, and unsupported cues create no backlog; pause, page hide, game over, Skip, mute, Voice off, and teardown cancel active speech.
+- [ ] Coachmarks/notices remain authoritative and the polite live-region fallback works with Voice off, Sound muted, and speech synthesis unavailable.
+- [ ] Browser/system voice variation is acceptable, and no recorded, sampled, cloned, or reference-derived voice asset ships.
 - [ ] Normal completion and Skip persist once; Help replay and `tutorial=1|0|move|mine|collect|threat` do not alter the saved first-run result.
 - [ ] Showcase/profile runs suppress the tutorial unless explicitly overridden, and pinned stage overrides remain stable for visual QA.
 - [ ] Held fire can extract Flux, while short controlled bursts preserve more planetoid yield.

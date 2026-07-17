@@ -280,6 +280,44 @@ button {
   text-transform: uppercase;
 }
 
+.voice-toggle {
+  display: inline-flex;
+  min-width: 104px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(139, 211, 239, 0.22);
+  border-radius: 5px;
+  background: rgba(5, 10, 23, 0.72);
+  color: #8297aa;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.voice-toggle span {
+  color: #7ceaff;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.voice-toggle:hover,
+.voice-toggle:focus-visible,
+.voice-toggle[aria-pressed="true"] {
+  outline: none;
+  border-color: rgba(108, 222, 255, 0.58);
+  color: #e9fbff;
+}
+
+.voice-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .primary-action {
   position: relative;
   min-width: 238px;
@@ -1380,6 +1418,9 @@ button {
 
 .help-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
   justify-content: flex-start;
   margin: -8px 0 22px;
 }
@@ -1552,6 +1593,13 @@ button {
     margin-top: 8px;
     font-size: 8px;
     line-height: 1.35;
+  }
+
+  .touch-enabled .voice-toggle {
+    min-width: 94px;
+    height: 44px;
+    padding: 0 10px;
+    font-size: 8px;
   }
 
   .touch-enabled .primary-action {

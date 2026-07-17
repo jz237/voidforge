@@ -29,9 +29,10 @@ test("server-renders the VOIDFORGE launch screen", async () => {
 });
 
 test("ships the game, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, audio, styles, layout, packageJson] = await Promise.all([
+  const [component, tutorial, guidance, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -52,6 +53,11 @@ test("ships the game, procedural audio, high-resolution art, and no starter prev
   assert.match(component, /data-testid="tutorial-skip"/);
   assert.match(component, /data-testid="tutorial-replay"/);
   assert.match(component, /aria-label="Skip first-run tutorial"/);
+  assert.match(component, /Turn flight guide voice off/);
+  assert.match(component, /speechSynthesis\.speak/);
+  assert.match(component, /speechSynthesis\.cancel/);
+  assert.match(guidance, /voidforge-guide-voice/);
+  assert.match(guidance, /thirteen Nova charges/i);
   assert.match(styles, /safe-area-inset-bottom/);
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /max-height:\s*600px/);

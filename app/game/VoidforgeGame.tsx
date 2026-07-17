@@ -23,6 +23,11 @@ import {
   createTutorialState,
   resolveTutorialMode,
 } from "./tutorial.mjs";
+import {
+  ENGINE_DIALOGUE,
+  SPOKEN_GUIDANCE_STORAGE_KEY,
+  resolveGuidance,
+} from "./spoken-guidance.mjs";
 
 type ScreenMode = "title" | "playing" | "paused" | "gameover";
 type ContactKind = "worker" | "warrior" | "boss";
@@ -61,6 +66,7 @@ interface GameApi {
   togglePause: () => void;
   unlockAudio: () => void;
   setMuted: (muted: boolean) => void;
+  setVoiceEnabled: (enabled: boolean) => void;
   setReducedFx: (reduced: boolean) => void;
   setReducedFlashing: (reduced: boolean) => void;
   setEffectIntensity: (intensity: number) => void;
@@ -297,6 +303,7 @@ const EMPTY_API: GameApi = {
   togglePause() {},
   unlockAudio() {},
   setMuted() {},
+  setVoiceEnabled() {},
   setReducedFx() {},
   setReducedFlashing() {},
   setEffectIntensity() {},
@@ -597,6 +604,7 @@ export function VoidforgeGame() {
   const tutorialPersistRef = useRef(false);
   const helpOpenRef = useRef(false);
   const mutedRef = useRef(false);
+  const voiceEnabledRef = useRef(true);
   const reducedFxRef = useRef(false);
   const reducedFlashingRef = useRef(false);
   const effectIntensityRef = useRef(1);
@@ -607,6 +615,8 @@ export function VoidforgeGame() {
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [notice, setNotice] = useState<{ text: string; danger: boolean; key: number } | null>(null);
   const [muted, setMuted] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [voiceSupported, setVoiceSupported] = useState(true);
   const [reducedFx, setReducedFx] = useState(false);
   const [reducedFlashing, setReducedFlashing] = useState(false);
   const [effectIntensity, setEffectIntensity] = useState(1);
@@ -622,11 +632,13 @@ export function VoidforgeGame() {
   useEffect(() => {
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const storedMuted = window.localStorage.getItem("voidforge-muted") === "true";
+    const storedVoice = window.localStorage.getItem(SPOKEN_GUIDANCE_STORAGE_KEY);
     const storedReduced = window.localStorage.getItem("voidforge-reduced-fx");
     const storedFlashing = window.localStorage.getItem("voidforge-reduced-flashing");
     const storedIntensity = Number(window.localStorage.getItem("voidforge-effect-intensity"));
     const storedColorMode = window.localStorage.getItem("voidforge-color-mode");
     const storedContrast = window.localStorage.getItem("voidforge-high-contrast") === "true";
+    const speechAvailable = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
     const params = new URLSearchParams(window.location.search);
     const tutorialMode = resolveTutorialMode({
       query: params.get("tutorial"),
@@ -637,6 +649,8 @@ export function VoidforgeGame() {
     // Client-only preferences cannot be known during server rendering.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMuted(storedMuted);
+    setVoiceEnabled(storedVoice === null ? speechAvailable : storedVoice === "true");
+    setVoiceSupported(speechAvailable);
     setReducedFx(storedReduced === null ? prefersReduced : storedReduced === "true");
     setReducedFlashing(storedFlashing === null ? prefersReduced : storedFlashing === "true");
     setEffectIntensity([0, 0.35, 0.7, 1].includes(storedIntensity) ? storedIntensity : 1);
@@ -653,7 +667,8 @@ export function VoidforgeGame() {
     const updateCapability = () => {
       const compactTouchDevice = navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) < 900;
       // The query flag makes deterministic mobile QA possible without changing production defaults.
-      setTouchCapable(forced || coarsePointer.matches || compactTouchDevice);
+      const capable = forced || coarsePointer.matches || compactTouchDevice;
+      setTouchCapable(capable);
     };
     updateCapability();
     coarsePointer.addEventListener?.("change", updateCapability);
@@ -669,6 +684,12 @@ export function VoidforgeGame() {
     gameApiRef.current.setMuted(muted);
     window.localStorage.setItem("voidforge-muted", String(muted));
   }, [muted]);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+    gameApiRef.current.setVoiceEnabled(voiceEnabled);
+    window.localStorage.setItem(SPOKEN_GUIDANCE_STORAGE_KEY, String(voiceEnabled));
+  }, [voiceEnabled]);
 
   useEffect(() => {
     reducedFxRef.current = reducedFx;
@@ -712,6 +733,8 @@ export function VoidforgeGame() {
     const audio = new VoidforgeAudio({ muted: mutedRef.current, volume: 0.72 });
     const keys = new Set<string>();
     const timers = new Set<number>();
+    const spokenGuidance = new Set<string>();
+    let speechVoices: SpeechSynthesisVoice[] = [];
     let localMode: ScreenMode = "title";
     let localReducedFx = reducedFxRef.current;
     let localReducedFlashing = reducedFlashingRef.current;
@@ -1004,6 +1027,43 @@ export function VoidforgeGame() {
 
       const nextId = () => ++idCounter;
 
+      const speechSupported = () => "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+      const refreshSpeechVoices = () => {
+        speechVoices = speechSupported() ? window.speechSynthesis.getVoices() : [];
+      };
+      const cancelVoice = () => {
+        if (speechSupported()) window.speechSynthesis.cancel();
+      };
+      const speakVoiceLine = (line: string, tone: "guide" | "engine" = "guide", interrupt = true) => {
+        if (!voiceEnabledRef.current || mutedRef.current || document.hidden || !speechSupported()) return;
+        if (interrupt) window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(line);
+        const requestedLanguage = navigator.language || "en-US";
+        const languageRoot = requestedLanguage.toLowerCase().split("-")[0];
+        utterance.lang = requestedLanguage;
+        utterance.pitch = tone === "engine" ? 0.35 : 0.9;
+        utterance.rate = tone === "engine" ? 0.72 : 0.95;
+        utterance.volume = tone === "engine" ? 0.72 : 0.78;
+        utterance.voice = speechVoices.find((voice) => voice.lang.toLowerCase() === requestedLanguage.toLowerCase())
+          ?? speechVoices.find((voice) => voice.lang.toLowerCase().startsWith(languageRoot))
+          ?? null;
+        window.speechSynthesis.speak(utterance);
+      };
+      const speakGuidance = (key: string, interrupt = true) => {
+        const line = resolveGuidance({
+          key,
+          muted: mutedRef.current,
+          enabled: voiceEnabledRef.current,
+          supported: speechSupported(),
+          hidden: document.hidden,
+          spoken: spokenGuidance,
+        });
+        if (line) speakVoiceLine(line, "guide", interrupt);
+      };
+
+      refreshSpeechVoices();
+      if (speechSupported()) window.speechSynthesis.addEventListener?.("voiceschanged", refreshSpeechVoices);
+
       const notify = (text: string, danger = false) => {
         const key = Date.now() + Math.floor(rng() * 10_000);
         setNotice({ text, danger, key });
@@ -1021,6 +1081,7 @@ export function VoidforgeGame() {
         if (next === current) return;
         tutorialRuntimeRef.current = next;
         if (next.complete) {
+          cancelVoice();
           tutorialActiveRef.current = false;
           setTutorialStep(null);
           if (tutorialPersistRef.current) {
@@ -1030,9 +1091,11 @@ export function VoidforgeGame() {
           tutorialPersistRef.current = false;
           player.invulnerable = Math.max(player.invulnerable, 2.5);
           notify(event === "skip" ? "TRAINING SKIPPED · MISSION ACTIVE" : "TRAINING COMPLETE · MISSION ACTIVE");
+          if (event !== "skip") speakGuidance("mission:training-complete");
           return;
         }
         setTutorialStep(next.step as TutorialStep);
+        speakGuidance(`tutorial:${next.step}`);
       };
 
       const activateTutorial = ({ step, pinned, persist }: { step: string; pinned: boolean; persist: boolean }) => {
@@ -1040,6 +1103,7 @@ export function VoidforgeGame() {
         tutorialActiveRef.current = true;
         tutorialPersistRef.current = persist;
         setTutorialStep(tutorialRuntimeRef.current.step as TutorialStep);
+        speakGuidance(`tutorial:${tutorialRuntimeRef.current.step}`);
       };
 
       const disableTutorial = () => {
@@ -1061,18 +1125,6 @@ export function VoidforgeGame() {
       };
 
       const panFor = (x: number) => clamp((x - cameraX) / 900, -1, 1);
-
-      const voiceLine = (line: string) => {
-        if (mutedRef.current || !("speechSynthesis" in window)) return;
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(line);
-        utterance.pitch = 0.35;
-        utterance.rate = 0.72;
-        utterance.volume = 0.7;
-        const voices = window.speechSynthesis.getVoices();
-        utterance.voice = voices.find((voice) => /english|united states|david|mark/i.test(`${voice.name} ${voice.lang}`)) ?? null;
-        window.speechSynthesis.speak(utterance);
-      };
 
       const makePlayerView = () => {
         const container = new PIXI.Container();
@@ -2354,7 +2406,8 @@ export function VoidforgeGame() {
         triggerShockwave(engine.x, engine.y, 1.05, 0.68);
         audio.warning(1);
         notify("THE DREAD ENGINE IS AWAKE", true);
-        voiceLine("The forge is awake. Signal acquired.");
+        speakVoiceLine(ENGINE_DIALOGUE.awake, "engine");
+        speakGuidance("mission:engine-awake", false);
       };
 
       const depositPiece = (fabricator: Fabricator) => {
@@ -2379,6 +2432,7 @@ export function VoidforgeGame() {
         if (pieces === 14) {
           audio.warning(0.55);
           notify("ASSEMBLY CASCADE DETECTED", true);
+          speakGuidance("mission:assembly-critical");
         }
         if (pieces >= RULES.enginePieces) activateEngine();
       };
@@ -2394,7 +2448,7 @@ export function VoidforgeGame() {
         audio.setMusicIntensity(0);
         audio.explosion(1, panFor(engine.x));
         notify("DREAD ENGINE RUPTURED · FIELD SECURED");
-        voiceLine("Containment lost. The forge is broken.");
+        speakVoiceLine(ENGINE_DIALOGUE.destroyed, "engine");
         engine.deathPose = 1;
         engine.outerRing.rotation = 0;
         engine.innerRing.rotation = 0;
@@ -2445,6 +2499,7 @@ export function VoidforgeGame() {
         spawnWreckage(player.x, player.y, 0x65eaff, 32, 7, 3.8);
         audio.playerDeath();
         if (lives <= 0) {
+          cancelVoice();
           localMode = "gameover";
           setScreenMode("gameover");
           audio.setEngineThrust(0);
@@ -2545,6 +2600,8 @@ export function VoidforgeGame() {
       };
 
       const startGame = (tutorialOverride?: "force" | "disable") => {
+        cancelVoice();
+        spokenGuidance.clear();
         resetTouchInput(touchInputRef.current);
         resetWorld(true);
         const tutorialMode = tutorialModeForRun(tutorialOverride);
@@ -2554,7 +2611,11 @@ export function VoidforgeGame() {
         setScreenMode("playing");
         setNotice(null);
         void audio.unlock();
-        if (!tutorialMode.enabled) notify("FIELD 01 · CINDER EXPANSE");
+        if (!tutorialMode.enabled) {
+          notify("FIELD 01 · CINDER EXPANSE");
+          const params = new URLSearchParams(window.location.search);
+          if (!params.has("showcase") && params.get("profile") !== "1") speakGuidance("mission:start");
+        }
         app?.canvas.focus();
         refreshHud();
       };
@@ -2562,6 +2623,7 @@ export function VoidforgeGame() {
       const togglePause = () => {
         resetTouchInput(touchInputRef.current);
         if (localMode === "playing") {
+          cancelVoice();
           localMode = "paused";
           setScreenMode("paused");
           audio.setEngineThrust(0);
@@ -3782,12 +3844,12 @@ export function VoidforgeGame() {
         lastGamepadBomb = false;
         setTouchResetKey((value) => value + 1);
       };
-      const onBlur = () => clearInputs();
+      const onBlur = () => { clearInputs(); cancelVoice(); };
       const onVisibilityChange = () => {
         clearInputs();
         if (document.hidden && localMode === "playing") togglePause();
       };
-      const onPageHide = () => clearInputs();
+      const onPageHide = () => { clearInputs(); cancelVoice(); };
       const onOrientationChange = () => clearInputs();
       const onPointerDown = () => { void audio.unlock(); app?.canvas.focus(); };
       window.addEventListener("keydown", onKeyDown, { passive: false });
@@ -3807,7 +3869,10 @@ export function VoidforgeGame() {
         unlockAudio() { void audio.unlock(); },
         setMuted(value) {
           audio.setMuted(value);
-          if (value && "speechSynthesis" in window) window.speechSynthesis.cancel();
+          if (value) cancelVoice();
+        },
+        setVoiceEnabled(value) {
+          if (!value) cancelVoice();
         },
         setReducedFx(value) {
           localReducedFx = value;
@@ -3844,6 +3909,7 @@ export function VoidforgeGame() {
         window.removeEventListener("orientationchange", onOrientationChange);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         app?.canvas.removeEventListener("pointerdown", onPointerDown);
+        if (speechSupported()) window.speechSynthesis.removeEventListener?.("voiceschanged", refreshSpeechVoices);
       };
     };
 
@@ -3929,10 +3995,23 @@ export function VoidforgeGame() {
                 >
                   {ready ? tutorialRecommended ? "Start guided flight" : "Enter the Expanse" : "Calibrating field…"}
                 </button>
-                <span className="version-mark">Vesper flight core<br />build 01.29</span>
+                {tutorialRecommended && (
+                  <button
+                    className="voice-toggle"
+                    type="button"
+                    aria-label={voiceSupported ? voiceEnabled ? "Turn flight guide voice off" : "Turn flight guide voice on" : "Flight guide voice unavailable in this browser"}
+                    aria-pressed={voiceEnabled}
+                    disabled={!voiceSupported}
+                    onClick={() => setVoiceEnabled((value) => !value)}
+                  >
+                    <span aria-hidden="true">VOX</span>
+                    {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
+                  </button>
+                )}
+                <span className="version-mark">Vesper flight core<br />build 01.30</span>
               </div>
               {tutorialRecommended && (
-                <p className="first-flight-note">New pilot · a short guided flight teaches movement, mining, Flux, and the Dread Engine.</p>
+                <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
               )}
             </div>
             <MissionBriefing />
@@ -4036,6 +4115,17 @@ export function VoidforgeGame() {
               >
                 Replay guided flight
               </button>
+              <button
+                className="voice-toggle"
+                type="button"
+                aria-label={voiceSupported ? voiceEnabled ? "Turn flight guide voice off" : "Turn flight guide voice on" : "Flight guide voice unavailable in this browser"}
+                aria-pressed={voiceEnabled}
+                disabled={!voiceSupported}
+                onClick={() => setVoiceEnabled((value) => !value)}
+              >
+                <span aria-hidden="true">VOX</span>
+                {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
+              </button>
             </div>
             <div className="help-grid">
               <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
@@ -4044,7 +4134,7 @@ export function VoidforgeGame() {
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
               <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
               <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
-              <div><h3>Accessibility</h3><p>Reduce motion or flashing independently, tune effect density, select a color profile, increase contrast, or mute procedural audio.</p></div>
+              <div><h3>Accessibility</h3><p>Reduce motion or flashing, tune effects and color, increase contrast, or disable the optional flight-guide voice. Sound is the master control for game audio and voice.</p></div>
             </div>
           </section>
         )}
@@ -4090,9 +4180,12 @@ export function VoidforgeGame() {
         </nav>}
         {touchCapable && screenMode === "title" && <p className="portrait-notice">Portrait controls active · landscape expands the tactical view</p>}
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-          {notice?.text ?? (tutorialStep
+          {notice?.text ?? ""}
+        </p>
+        <p className="sr-only" aria-live={voiceEnabled && !muted && voiceSupported ? "off" : "polite"} aria-atomic="true">
+          {tutorialStep
             ? `Tutorial step ${TUTORIAL_STEPS.indexOf(tutorialStep) + 1} of ${TUTORIAL_STEPS.length}. ${TUTORIAL_COPY[tutorialStep].title}. ${touchCapable ? TUTORIAL_COPY[tutorialStep].touch : TUTORIAL_COPY[tutorialStep].desktop}`
-            : "")}
+            : ""}
         </p>
       </div>
     </main>
