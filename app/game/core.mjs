@@ -88,11 +88,13 @@ export function minePlanetoid(planetoid, hitAtMs) {
   const rapid = hitAtMs - (next.lastHitAt ?? -Infinity) < 145;
   next.lastHitAt = hitAtMs;
   next.integrity = Math.max(0, next.integrity - (rapid ? 2 : 1));
-  next.miningProgress = (next.miningProgress ?? 0) + 1;
+  // Held fire should still produce Flux on touch devices, while deliberate
+  // pulses remain twice as efficient and preserve more of the planetoid.
+  next.miningProgress = (next.miningProgress ?? 0) + (rapid ? 0.75 : 1);
 
   let emitted = false;
-  if (!rapid && next.shards > 0 && next.miningProgress >= 2) {
-    next.miningProgress = 0;
+  if (next.shards > 0 && next.miningProgress >= 2) {
+    next.miningProgress = Math.max(0, next.miningProgress - 2);
     next.shards -= 1;
     emitted = true;
   }

@@ -31,6 +31,19 @@ test("careful mining releases a shard while rapid mining damages the planetoid",
   assert.equal(rapid.planetoid.integrity, 6);
 });
 
+test("held mobile fire still extracts Flux while short bursts remain more efficient", () => {
+  let planetoid = { integrity: 8, shards: 4, miningProgress: 0, lastHitAt: -1000 };
+  let emitted = 0;
+  for (const hitAtMs of [0, 115, 230, 345, 460]) {
+    const result = minePlanetoid(planetoid, hitAtMs);
+    planetoid = result.planetoid;
+    if (result.emitted) emitted += 1;
+  }
+  assert.equal(planetoid.integrity, 0);
+  assert.equal(emitted, 2);
+  assert.equal(planetoid.shards, 2);
+});
+
 test("charge inventory is capped", () => {
   const collected = collectShard({ charges: RULES.maxCharges, score: 0 });
   assert.equal(collected.charges, RULES.maxCharges);

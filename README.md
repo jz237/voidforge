@@ -40,7 +40,9 @@ Phone portrait and landscape layouts both respect display safe areas and keep th
 
 Touch layout and pointer behavior have been verified with browser mobile viewports and pointer-event checks. Dense touch combat held 60 FPS at 844×390 with a 16.8 ms p95 frame time; see the [mobile performance capture](artifacts/performance-mobile-844x390.json). Physical-device Safari and Chrome validation remains pending.
 
-Laser fire mines planetoids as well as attacking enemies. Controlled bursts release more Flux; firing too rapidly can destroy a planetoid before all its shards are extracted.
+The first normal run offers a four-stage guided flight: move the Vesper, extract a Flux crystal, follow its targeting bracket to collect it, and review the Fabricator–construction–Nova mission loop. Progress comes from gameplay events rather than a particular control device, so keyboard, gamepad, and touch all advance the same tutorial and actions completed ahead of a prompt are remembered. Fabricator deliveries wait until training ends. **Skip** exits at any stage; normal completion or skipping is saved locally so the tutorial does not repeat. Open **Help** and choose **Replay guided flight** to run it again without changing that saved first-run state.
+
+Laser fire mines planetoids as well as attacking enemies. Held fire still builds extraction progress and can release Flux, making touch mining forgiving. Short controlled bursts damage the planetoid less and remain the more efficient way to recover its crystals before it breaks.
 
 ## Accessibility and display
 
@@ -62,6 +64,7 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/postfx.ts` — custom WebGL post-processing, cinematic danger framing, and scene-wide accessibility color transforms
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
+- `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
 - `tests/` — deterministic mechanic tests and production-render smoke tests
 - `artifacts/screenshots/` — the eight required gameplay states at both 1080p and native 4K
@@ -77,6 +80,8 @@ npm run lint
 ```
 
 Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, and `gameover`.
+
+Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
 
 Mobile layout captures: [844×390 landscape](artifacts/screenshots/mobile-landscape-844x390.jpg) and [390×844 portrait](artifacts/screenshots/mobile-portrait-390x844.jpg).
 

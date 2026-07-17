@@ -22,15 +22,16 @@ test("server-renders the VOIDFORGE launch screen", async () => {
   const html = await response.text();
   assert.match(html, /<title>VOIDFORGE — The Dread Engine Awaits(?: · VOIDFORGE)?<\/title>/i);
   assert.match(html, /A modern arcade odyssey/i);
-  assert.match(html, /Enter the Expanse|Calibrating field/i);
+  assert.match(html, /Start guided flight|Enter the Expanse|Calibrating field/i);
   assert.match(html, /Mission briefing/i);
   assert.match(html, /og:image/i);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
 test("ships the game, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, audio, styles, layout, packageJson] = await Promise.all([
+  const [component, tutorial, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -44,9 +45,17 @@ test("ships the game, procedural audio, high-resolution art, and no starter prev
   assert.match(component, /setPointerCapture/);
   assert.match(component, /visibilitychange/);
   assert.match(component, /touchInput\.novaQueued = false/);
+  assert.match(tutorial, /voidforge-tutorial-v1-complete/);
+  assert.match(component, /\.get\("tutorial"\)/);
+  assert.match(component, /data-testid="tutorial-panel"/);
+  assert.match(component, /data-tutorial-step=/);
+  assert.match(component, /data-testid="tutorial-skip"/);
+  assert.match(component, /data-testid="tutorial-replay"/);
+  assert.match(component, /aria-label="Skip first-run tutorial"/);
   assert.match(styles, /safe-area-inset-bottom/);
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /max-height:\s*600px/);
+  assert.match(styles, /\.tutorial-panel\b/);
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(audio, /class VoidforgeAudio/);
   assert.match(audio, /createOscillator/);

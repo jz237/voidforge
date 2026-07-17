@@ -71,10 +71,27 @@ Movement has acceleration, momentum, drag, and a fast reversal response. Keyboar
 - Phone portrait and landscape layouts use safe-area insets, responsive stick placement, and HUD spacing that keeps controls and critical information distinct.
 - Keyboard and gamepad controls remain active when touch controls are available.
 
+## First-run tutorial
+
+The normal first run is a short, non-modal guided flight layered over active play. Its four stages are:
+
+1. **Move:** apply meaningful thrust beyond the active input dead zone.
+2. **Extract:** fire into a cracked planetoid until it emits a Flux crystal.
+3. **Collect:** fly through the crystal to convert it into a Nova Charge.
+4. **Mission loop:** explain that Fabricators build the Dread Engine at 20 deliveries and that 13 Nova hits destroy it, then let the player choose **Begin mission**.
+
+- Tutorial progression listens for input-neutral gameplay events—thrust, shard extraction, and shard collection—so keyboard, gamepad, and touch have identical completion rules while presenting device-appropriate instructions.
+- Completed facts are retained even when the player acts ahead of the visible prompt. The state machine advances past any already-satisfied stage instead of requiring the action again.
+- Fabricator deliveries are held while training is active, and the emitted tutorial crystal receives a persistent shape-based targeting bracket so the learning flow cannot be overtaken by construction or an ambiguous pickup.
+- **Skip** is available at every stage. In the ordinary first-run path, either Skip or completion writes `voidforge-tutorial-v1-complete=true`, preventing the tutorial from appearing on later launches.
+- **Help → Replay guided flight** starts again at Move without clearing or rewriting the saved first-run result.
+- `?tutorial=1` forces the normal advancing flow and `?tutorial=0` suppresses it. `?tutorial=move|mine|collect|threat` forces and pins one deterministic stage; `threat` represents Mission loop. All explicit tutorial overrides take precedence and are non-persistent.
+- In the absence of an explicit tutorial override, `?showcase=...` and `?profile=1` suppress onboarding so deterministic captures and performance samples remain unchanged.
+
 ## Player systems
 
 - **Primary laser:** rapid precision fire; mines rocks and destroys small enemies but cannot directly damage the Dread Engine.
-- **Mining heat:** hits raise asteroid fracture energy. The extraction band emits shards; overloading destroys the rock and any unextracted yield.
+- **Mining heat:** hits raise asteroid fracture energy. Hits less than 145 ms apart still add 0.75 extraction progress, allowing held fire to emit shards, but deal two integrity damage instead of one; deliberate pulses add 1.0 progress and preserve more yield. Overloading destroys the rock and any unextracted crystals.
 - **Nova Charge:** consumes one stored charge, acquires the active Dread Engine, curves toward it, and can be intercepted. No target means no launch and no ammo loss.
 - **Damage:** one unshielded hostile projectile or Dread Engine collision costs a hull. Clear audiovisual warnings precede unavoidable high-speed contact.
 - **Scoring:** shard +100; loaded Fabricator +250; Sentinel +400; Dread Engine node +750; core +10,000; clear-time and hull bonuses.
@@ -160,11 +177,12 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Rebindable keyboard actions and adjustable gamepad dead zone
 - Toggle/hold options for primary fire; pause on focus loss
 - Swappable touch handedness, safe-area-aware portrait/landscape layouts, and action targets sized for touch
+- Device-appropriate tutorial copy, an always-available Skip action, and polite live announcements for stage changes
 - Critical alerts delivered by icon, text, and sound; no essential information depends on color or audio alone
 
 ## Game states and progression
 
-Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material.
+Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. First-run guidance is an event-driven overlay within playing rather than a separate blocking state or cutscene. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material.
 
 ## Performance and verification
 
@@ -175,8 +193,9 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Capture 1920×1080 and 3840×2160 frames for exploration, mining, construction, dense combat, pursuit, multi-hit damage, destruction, and game over.
 - Verify that player, shards, enemies, charges, hostile shots, and scanner contacts remain identifiable in every capture.
 - Browser mobile-viewport and pointer-event checks cover portrait/landscape layout, pointer capture and cancellation, safe-area rules, and background auto-pause. Physical-device mobile Safari and Chrome validation remains pending.
-- Automated simulation tests cover extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, scoring, and arena completion.
+- Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides.
+- Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 
 ## Definition of done
 
-A player can learn the controls, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. The browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight, skip or replay it, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

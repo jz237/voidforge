@@ -16,10 +16,19 @@ import {
   quantizeThrustMagnitude,
   seededRandom,
 } from "./core.mjs";
+import {
+  TUTORIAL_STEPS,
+  TUTORIAL_STORAGE_KEY,
+  advanceTutorial,
+  createTutorialState,
+  resolveTutorialMode,
+} from "./tutorial.mjs";
 
 type ScreenMode = "title" | "playing" | "paused" | "gameover";
 type ContactKind = "worker" | "warrior" | "boss";
 type ColorMode = "standard" | "deuteranopia" | "protanopia" | "tritanopia";
+type TutorialStep = "move" | "mine" | "collect" | "threat";
+type TutorialEvent = "player-thrusted" | "shard-extracted" | "shard-collected" | "acknowledge" | "skip";
 
 interface RadarContact {
   id: number;
@@ -46,7 +55,9 @@ interface HudState {
 
 interface GameApi {
   start: () => void;
+  startTutorial: () => void;
   restart: () => void;
+  tutorialEvent: (event: TutorialEvent) => void;
   togglePause: () => void;
   unlockAudio: () => void;
   setMuted: (muted: boolean) => void;
@@ -55,6 +66,13 @@ interface GameApi {
   setEffectIntensity: (intensity: number) => void;
   setHighContrast: (enabled: boolean) => void;
   setColorMode: (mode: ColorMode) => void;
+}
+
+interface TutorialRuntime {
+  step: TutorialStep | "complete";
+  complete: boolean;
+  pinned: boolean;
+  facts: Record<string, boolean>;
 }
 
 interface TouchInputState {
@@ -226,6 +244,38 @@ interface RuntimeProfile {
   maxFrameMs: number;
 }
 
+const TUTORIAL_COPY: Record<TutorialStep, {
+  kicker: string;
+  title: string;
+  touch: string;
+  desktop: string;
+}> = {
+  move: {
+    kicker: "Flight training",
+    title: "Move the Vesper",
+    touch: "Drag THRUST toward a large cracked planetoid.",
+    desktop: "Use WASD, the arrow keys, or the left gamepad stick to fly toward a cracked planetoid.",
+  },
+  mine: {
+    kicker: "Flux extraction",
+    title: "Cut loose a crystal",
+    touch: "Drag AIM toward the glowing cracks and hold to fire. Short bursts extract more Flux.",
+    desktop: "Face a cracked planetoid and fire with Space or the gamepad. Short bursts extract more Flux.",
+  },
+  collect: {
+    kicker: "Nova foundry",
+    title: "Claim the glowing Flux",
+    touch: "Follow the bracketed crystal, then use THRUST to fly through it. Each one becomes a Nova Charge.",
+    desktop: "Follow the bracketed crystal and fly through it. Every collected Flux crystal becomes one Nova Charge.",
+  },
+  threat: {
+    kicker: "Mission loop",
+    title: "Stop the Dread Engine",
+    touch: "Mine Flux, shoot orange Fabricators before Assembly reaches 20, then launch 13 Novas when the Engine wakes.",
+    desktop: "Mine Flux, stop orange Fabricators before Assembly reaches 20, then launch 13 Novas when the Engine wakes.",
+  },
+};
+
 const INITIAL_HUD: HudState = {
   score: 0,
   lives: RULES.playerLives,
@@ -241,7 +291,9 @@ const INITIAL_HUD: HudState = {
 
 const EMPTY_API: GameApi = {
   start() {},
+  startTutorial() {},
   restart() {},
+  tutorialEvent() {},
   togglePause() {},
   unlockAudio() {},
   setMuted() {},
@@ -390,6 +442,58 @@ function MissionBriefing() {
   );
 }
 
+function TutorialCoachmark({
+  step,
+  touchCapable,
+  onSkip,
+  onComplete,
+}: {
+  step: TutorialStep;
+  touchCapable: boolean;
+  onSkip: () => void;
+  onComplete: () => void;
+}) {
+  const copy = TUTORIAL_COPY[step];
+  const stepIndex = TUTORIAL_STEPS.indexOf(step);
+  const instruction = touchCapable ? copy.touch : copy.desktop;
+  return (
+    <section
+      className={`tutorial-panel tutorial-${step}`}
+      aria-labelledby="tutorial-title"
+      data-testid="tutorial-panel"
+      data-tutorial-step={step}
+    >
+      <div className="tutorial-header">
+        <span>{copy.kicker}</span>
+        <strong>{stepIndex + 1} / {TUTORIAL_STEPS.length}</strong>
+        <button
+          type="button"
+          className="tutorial-skip"
+          aria-label="Skip first-run tutorial"
+          data-testid="tutorial-skip"
+          onClick={onSkip}
+        >
+          Skip
+        </button>
+      </div>
+      <h2 id="tutorial-title">{copy.title}</h2>
+      <p>{instruction}</p>
+      <div className="tutorial-footer">
+        <div className="tutorial-progress" aria-label={`Tutorial step ${stepIndex + 1} of ${TUTORIAL_STEPS.length}`}>
+          {TUTORIAL_STEPS.map((item, index) => (
+            <i className={index <= stepIndex ? "active" : ""} key={item} aria-hidden="true" />
+          ))}
+        </div>
+        {step === "threat" && (
+          <button type="button" className="tutorial-continue" onClick={onComplete}>
+            Begin mission
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Radar({ contacts, status, danger }: { contacts: RadarContact[]; status: string; danger: number }) {
   return (
     <div className={`radar-wrap ${danger > 0.62 ? "danger" : ""}`} aria-label={`Tactical scanner: ${status}`}>
@@ -488,6 +592,9 @@ export function VoidforgeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const gameApiRef = useRef<GameApi>(EMPTY_API);
   const touchInputRef = useRef<TouchInputState>(createTouchInput());
+  const tutorialRuntimeRef = useRef<TutorialRuntime>(createTutorialState() as TutorialRuntime);
+  const tutorialActiveRef = useRef(false);
+  const tutorialPersistRef = useRef(false);
   const helpOpenRef = useRef(false);
   const mutedRef = useRef(false);
   const reducedFxRef = useRef(false);
@@ -509,6 +616,8 @@ export function VoidforgeGame() {
   const [touchCapable, setTouchCapable] = useState(false);
   const [touchSouthpaw, setTouchSouthpaw] = useState(false);
   const [touchResetKey, setTouchResetKey] = useState(0);
+  const [tutorialStep, setTutorialStep] = useState<TutorialStep | null>(null);
+  const [tutorialRecommended, setTutorialRecommended] = useState(false);
 
   useEffect(() => {
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -518,6 +627,13 @@ export function VoidforgeGame() {
     const storedIntensity = Number(window.localStorage.getItem("voidforge-effect-intensity"));
     const storedColorMode = window.localStorage.getItem("voidforge-color-mode");
     const storedContrast = window.localStorage.getItem("voidforge-high-contrast") === "true";
+    const params = new URLSearchParams(window.location.search);
+    const tutorialMode = resolveTutorialMode({
+      query: params.get("tutorial"),
+      completed: window.localStorage.getItem(TUTORIAL_STORAGE_KEY) === "true",
+      showcase: params.has("showcase"),
+      profile: params.get("profile") === "1",
+    });
     // Client-only preferences cannot be known during server rendering.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMuted(storedMuted);
@@ -528,6 +644,7 @@ export function VoidforgeGame() {
       setColorMode(storedColorMode as ColorMode);
     }
     setHighContrast(storedContrast);
+    setTutorialRecommended(tutorialMode.enabled);
   }, []);
 
   useEffect(() => {
@@ -836,6 +953,7 @@ export function VoidforgeGame() {
       let engine: DreadEngine;
       let planetoids: Planetoid[] = [];
       let crystals: Crystal[] = [];
+      let tutorialTarget: Crystal | undefined;
       let fabricators: Fabricator[] = [];
       let sentinels: Sentinel[] = [];
       let projectiles: Projectile[] = [];
@@ -894,6 +1012,52 @@ export function VoidforgeGame() {
           timers.delete(timer);
         }, 2850);
         timers.add(timer);
+      };
+
+      const applyTutorialEvent = (event: TutorialEvent) => {
+        if (!tutorialActiveRef.current) return;
+        const current = tutorialRuntimeRef.current;
+        const next = advanceTutorial(current, event) as TutorialRuntime;
+        if (next === current) return;
+        tutorialRuntimeRef.current = next;
+        if (next.complete) {
+          tutorialActiveRef.current = false;
+          setTutorialStep(null);
+          if (tutorialPersistRef.current) {
+            window.localStorage.setItem(TUTORIAL_STORAGE_KEY, "true");
+            setTutorialRecommended(false);
+          }
+          tutorialPersistRef.current = false;
+          player.invulnerable = Math.max(player.invulnerable, 2.5);
+          notify(event === "skip" ? "TRAINING SKIPPED · MISSION ACTIVE" : "TRAINING COMPLETE · MISSION ACTIVE");
+          return;
+        }
+        setTutorialStep(next.step as TutorialStep);
+      };
+
+      const activateTutorial = ({ step, pinned, persist }: { step: string; pinned: boolean; persist: boolean }) => {
+        tutorialRuntimeRef.current = createTutorialState(step, pinned) as TutorialRuntime;
+        tutorialActiveRef.current = true;
+        tutorialPersistRef.current = persist;
+        setTutorialStep(tutorialRuntimeRef.current.step as TutorialStep);
+      };
+
+      const disableTutorial = () => {
+        tutorialActiveRef.current = false;
+        tutorialPersistRef.current = false;
+        setTutorialStep(null);
+      };
+
+      const tutorialModeForRun = (override?: "force" | "disable") => {
+        if (override === "force") return { enabled: true, step: "move", pinned: false, persist: false };
+        if (override === "disable") return { enabled: false, step: "move", pinned: false, persist: false };
+        const params = new URLSearchParams(window.location.search);
+        return resolveTutorialMode({
+          query: params.get("tutorial"),
+          completed: window.localStorage.getItem(TUTORIAL_STORAGE_KEY) === "true",
+          showcase: params.has("showcase"),
+          profile: params.get("profile") === "1",
+        });
       };
 
       const panFor = (x: number) => clamp((x - cameraX) / 900, -1, 1);
@@ -1690,11 +1854,13 @@ export function VoidforgeGame() {
         const { container: view, halo, glint, trail } = makeCrystalView();
         view.position.set(x, y);
         pickupLayer.addChild(view);
-        crystals.push({
+        const crystal: Crystal = {
           id: nextId(), x, y, vx: Math.cos(angle) * (45 + rng() * 65),
           vy: Math.sin(angle) * (45 + rng() * 65), radius: 13, view, age: 0,
           halo, glint, trail, phase: rng() * Math.PI * 2,
-        });
+        };
+        crystals.push(crystal);
+        return crystal;
       };
 
       const spawnFabricator = (x: number, y: number) => {
@@ -2119,6 +2285,7 @@ export function VoidforgeGame() {
         }
         planetoids = [];
         crystals = [];
+        tutorialTarget = undefined;
         fabricators = [];
         sentinels = [];
         projectiles = [];
@@ -2193,6 +2360,9 @@ export function VoidforgeGame() {
       const depositPiece = (fabricator: Fabricator) => {
         fabricator.carrying = false;
         fabricator.targetId = undefined;
+        if (tutorialActiveRef.current) {
+          return;
+        }
         if (engine.active) {
           if (engine.health < RULES.engineHits) {
             engine.health += 1;
@@ -2374,14 +2544,17 @@ export function VoidforgeGame() {
         notify("NOVA CHARGE LOCKED");
       };
 
-      const startGame = () => {
+      const startGame = (tutorialOverride?: "force" | "disable") => {
         resetTouchInput(touchInputRef.current);
         resetWorld(true);
+        const tutorialMode = tutorialModeForRun(tutorialOverride);
+        if (tutorialMode.enabled) activateTutorial(tutorialMode);
+        else disableTutorial();
         localMode = "playing";
         setScreenMode("playing");
         setNotice(null);
         void audio.unlock();
-        notify("FIELD 01 · CINDER EXPANSE");
+        if (!tutorialMode.enabled) notify("FIELD 01 · CINDER EXPANSE");
         app?.canvas.focus();
         refreshHud();
       };
@@ -2401,7 +2574,7 @@ export function VoidforgeGame() {
       };
 
       const configureShowcase = (scene: string) => {
-        startGame();
+        startGame("disable");
         player.invulnerable = 999;
         if (scene === "mining") {
           charges = 5;
@@ -2618,6 +2791,10 @@ export function VoidforgeGame() {
 
         const rawMagnitude = Math.min(1, Math.hypot(inputX, inputY));
         const band = quantizeThrustMagnitude(rawMagnitude, 6);
+        if (tutorialActiveRef.current) {
+          player.invulnerable = Math.max(player.invulnerable, 0.45);
+          if (band > 0) applyTutorialEvent("player-thrusted");
+        }
         if (rawMagnitude > 0.01) {
           inputX /= rawMagnitude;
           inputY /= rawMagnitude;
@@ -2749,8 +2926,10 @@ export function VoidforgeGame() {
           crystal.trail.scale.x = 0.68 + clamp(crystalSpeed / 120, 0, 1) * 0.72;
           if (circlesOverlap(player, crystal)) {
             crystal.dead = true;
+            if (tutorialTarget?.id === crystal.id) tutorialTarget = undefined;
             charges = Math.min(RULES.maxCharges, charges + 1);
             score += 200;
+            applyTutorialEvent("shard-collected");
             audio.crystal(panFor(crystal.x));
             spawnImpactFx(crystal.x, crystal.y, 0x69f3ff, 34, 0.32);
             spawnBurst(crystal.x, crystal.y, 0x69f3ff, 14, 0.55);
@@ -2763,8 +2942,16 @@ export function VoidforgeGame() {
           let miningActive = false;
           if (!fabricator.carrying) {
             let target = crystals.find((crystal) => crystal.id === fabricator.targetId && !crystal.dead && crystal.claimedBy === fabricator.id);
+            if (tutorialActiveRef.current && tutorialRuntimeRef.current.step === "collect") {
+              if (target) target.claimedBy = undefined;
+              target = undefined;
+              fabricator.targetId = undefined;
+            }
             if (!target) {
-              target = nearest(fabricator, crystals.filter((crystal) => !crystal.claimedBy));
+              const availableCrystals = tutorialActiveRef.current && tutorialRuntimeRef.current.step === "collect"
+                ? []
+                : crystals.filter((crystal) => !crystal.claimedBy);
+              target = nearest(fabricator, availableCrystals);
               if (target) {
                 target.claimedBy = fabricator.id;
                 fabricator.targetId = target.id;
@@ -3023,7 +3210,14 @@ export function VoidforgeGame() {
               planetoid.miningHeat = 1;
               syncPlanetoidDamage(planetoid);
               spawnBurst(projectile.x, projectile.y, 0xffa251, 6, 0.3);
-              if (result.emitted) spawnCrystal(projectile.x, projectile.y);
+              if (result.emitted) {
+                const tutorialCrystalAngle = Math.atan2(player.y - projectile.y, player.x - projectile.x);
+                const crystal = tutorialActiveRef.current
+                  ? spawnCrystal(projectile.x, projectile.y, tutorialCrystalAngle)
+                  : spawnCrystal(projectile.x, projectile.y);
+                if (tutorialActiveRef.current) tutorialTarget = crystal;
+                applyTutorialEvent("shard-extracted");
+              }
               if (result.destroyed) {
                 planetoid.dead = true;
                 score += 5;
@@ -3446,7 +3640,11 @@ export function VoidforgeGame() {
 
         let reticleTarget: Entity | undefined;
         let reticleIsBoss = false;
-        if (bossPresent && bossOnScreen) {
+        let reticleIsTutorial = false;
+        if (tutorialActiveRef.current && tutorialRuntimeRef.current.step === "collect" && tutorialTarget && !tutorialTarget.dead) {
+          reticleTarget = tutorialTarget;
+          reticleIsTutorial = true;
+        } else if (bossPresent && bossOnScreen) {
           reticleTarget = engine;
           reticleIsBoss = true;
         } else {
@@ -3465,11 +3663,16 @@ export function VoidforgeGame() {
           const rawX = world.position.x + reticleTarget.x * worldScale;
           const rawY = world.position.y + reticleTarget.y * worldScale;
           const hudScale = overlayScale;
-          targetReticle.position.set(rawX, rawY);
-          targetReticle.rotation = localReducedFx ? 0 : motionClock * (reticleIsBoss ? -0.18 : 0.26);
-          targetReticle.scale.set(hudScale * (reticleIsBoss ? 1.48 : 0.86 + visualRhythm * 0.08));
+          const tutorialMinY = width > height ? 184 : 220;
+          const tutorialMaxY = height - (width > height ? 82 : 190);
+          targetReticle.position.set(
+            reticleIsTutorial ? clamp(rawX, 54, width - 54) : rawX,
+            reticleIsTutorial ? clamp(rawY, tutorialMinY, tutorialMaxY) : rawY,
+          );
+          targetReticle.rotation = localReducedFx ? 0 : motionClock * (reticleIsBoss ? -0.18 : reticleIsTutorial ? 0.42 : 0.26);
+          targetReticle.scale.set(hudScale * (reticleIsBoss ? 1.48 : reticleIsTutorial ? 1.18 : 0.86 + visualRhythm * 0.08));
           targetReticle.alpha = highContrastRef.current ? 0.9 : localReducedFlashing ? 0.62 : 0.5 + visualRhythm * 0.22;
-          targetReticle.tint = reticleIsBoss ? 0xffa07e : 0xc7f8ff;
+          targetReticle.tint = reticleIsBoss ? 0xffa07e : reticleIsTutorial ? 0x75efff : 0xc7f8ff;
         }
         const thrustHeat = speedRatio > 0.28 ? ((speedRatio - 0.28) / 0.72) * 0.42 : 0;
         const heat = clamp(
@@ -3597,7 +3800,9 @@ export function VoidforgeGame() {
 
       gameApiRef.current = {
         start: startGame,
+        startTutorial() { startGame("force"); },
         restart: startGame,
+        tutorialEvent: applyTutorialEvent,
         togglePause,
         unlockAudio() { void audio.unlock(); },
         setMuted(value) {
@@ -3681,6 +3886,7 @@ export function VoidforgeGame() {
   const updateTouchMove = (x: number, y: number) => {
     touchInputRef.current.moveX = x;
     touchInputRef.current.moveY = y;
+    if (Math.hypot(x, y) > 0.1) gameApiRef.current.tutorialEvent("player-thrusted");
   };
 
   const updateTouchAim = (x: number, y: number, active: boolean) => {
@@ -3696,7 +3902,7 @@ export function VoidforgeGame() {
 
   return (
     <main
-      className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
+      className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${tutorialStep ? `tutorial-step-${tutorialStep}` : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
       ref={shellRef}
     >
       <div className="game-mount" ref={mountRef} />
@@ -3717,13 +3923,17 @@ export function VoidforgeGame() {
                 <button
                   className="primary-action"
                   data-testid="start-game"
+                  data-tutorial-recommended={tutorialRecommended ? "true" : "false"}
                   disabled={!ready}
                   onClick={() => gameApiRef.current.start()}
                 >
-                  {ready ? "Enter the Expanse" : "Calibrating field…"}
+                  {ready ? tutorialRecommended ? "Start guided flight" : "Enter the Expanse" : "Calibrating field…"}
                 </button>
-                <span className="version-mark">Vesper flight core<br />build 01.27</span>
+                <span className="version-mark">Vesper flight core<br />build 01.28</span>
               </div>
+              {tutorialRecommended && (
+                <p className="first-flight-note">New pilot · a short guided flight teaches movement, mining, Flux, and the Dread Engine.</p>
+              )}
             </div>
             <MissionBriefing />
           </section>
@@ -3770,6 +3980,15 @@ export function VoidforgeGame() {
           </section>
         )}
 
+        {tutorialStep && screenMode === "playing" && !helpOpen && !notice && (
+          <TutorialCoachmark
+            step={tutorialStep}
+            touchCapable={touchCapable}
+            onSkip={() => gameApiRef.current.tutorialEvent("skip")}
+            onComplete={() => gameApiRef.current.tutorialEvent("acknowledge")}
+          />
+        )}
+
         {notice && (
           <div className={`center-alert ${notice.danger ? "danger" : ""}`} key={notice.key} aria-hidden="true">
             {notice.text}
@@ -3804,10 +4023,24 @@ export function VoidforgeGame() {
           <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
             <button className="utility-button dialog-close" aria-label="Close help" onClick={() => setHelpOpen(false)}>×</button>
             <h2 id="help-title">Flight manual</h2>
+            <div className="help-actions">
+              <button
+                className="primary-action tutorial-replay"
+                type="button"
+                aria-label="Replay first-run tutorial"
+                data-testid="tutorial-replay"
+                onClick={() => {
+                  setHelpOpen(false);
+                  gameApiRef.current.startTutorial();
+                }}
+              >
+                Replay guided flight
+              </button>
+            </div>
             <div className="help-grid">
               <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
               <div><h3>Touch targeting</h3><p>Drag the right stick to aim independently and hold it to fire. Tap Nova for a single homing charge; Pause opens every display option.</p></div>
-              <div><h3>Mine carefully</h3><p>Tap Space to cut Flux Shards from planetoids. Firing too rapidly destroys the rock before it yields everything.</p></div>
+              <div><h3>Mine carefully</h3><p>Hold fire to cut Flux from planetoids. Short controlled bursts preserve the rock and extract more crystals.</p></div>
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
               <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
               <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
@@ -3856,7 +4089,11 @@ export function VoidforgeGame() {
           </button>
         </nav>}
         {touchCapable && screenMode === "title" && <p className="portrait-notice">Portrait controls active · landscape expands the tactical view</p>}
-        <p className="sr-only" role="status" aria-live="polite">{notice?.text ?? ""}</p>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {notice?.text ?? (tutorialStep
+            ? `Tutorial step ${TUTORIAL_STEPS.indexOf(tutorialStep) + 1} of ${TUTORIAL_STEPS.length}. ${TUTORIAL_COPY[tutorialStep].title}. ${touchCapable ? TUTORIAL_COPY[tutorialStep].touch : TUTORIAL_COPY[tutorialStep].desktop}`
+            : "")}
+        </p>
       </div>
     </main>
   );

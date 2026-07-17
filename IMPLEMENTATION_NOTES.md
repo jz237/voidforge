@@ -52,7 +52,11 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Simulation state should remain independent of Pixi display objects so mechanics can be tested deterministically.
 - Keep touch state outside the React render hot path. Pointer capture carries a stick drag beyond its pad, while pointer up, cancellation, lost capture, focus loss, page hide, and orientation changes clear held movement and fire state.
 - Use safe-area insets and orientation-specific responsive layout rules for both phone portrait and landscape. Touch options expose a Swap control for southpaw placement without changing keyboard or gamepad bindings.
+- Keep the four-stage tutorial state machine in `app/game/tutorial.mjs`, independent of Pixi and input hardware. It records movement, extraction, and collection facts so actions performed before their coachmark still satisfy the corresponding stage.
+- Suppress Fabricator deposits only while the training overlay is active, protect the tutorial pickup from worker claims, and give that pickup priority in the existing targeting reticle. Normal simulation resumes immediately after Skip or Begin mission.
+- Store ordinary completion or Skip under the versioned `voidforge-tutorial-v1-complete` key. Help replay and every explicit `tutorial` query override are non-persistent; valid overrides take precedence, while showcase/profile runs suppress onboarding by default.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
+- Let rapid held fire continue accumulating mining progress so touch players cannot become stuck, while retaining the higher integrity cost that makes short controlled bursts more efficient.
 - Pool or cap shots, charges, enemy projectiles, persistent wreckage, debris, and high-frequency particles.
 - Seed random generation for reproducible screenshots and automated scenarios.
 - Treat 1920×1080 as the layout coordinate system; resolution and device pixel ratio affect render density, not mechanics.
@@ -103,6 +107,7 @@ Required for the first complete release:
 - Mining, shard collection, Fabricators, Sentinels, 20-step construction, activation, pursuit, interception, 13-node damage, destruction, and arena-clear transition
 - Score, high score, three hulls, charge inventory, pause, game over, and restart
 - Keyboard, gamepad, and responsive touch controls for phone portrait and landscape
+- Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, and deterministic QA overrides
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
 - Deterministic test mode, mechanic tests, browser smoke test, and the eight required screenshot states at 1080p and 4K
@@ -118,6 +123,10 @@ Deferred unless time permits: additional arena modifiers, persistent settings, e
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.
 - [ ] Reduced Motion, Reduced Flashing, and color-vision presets are verified in play.
 - [ ] Keyboard, gamepad, and browser-simulated touch input can complete the full loop.
+- [ ] Move, Extract, Collect, and Mission loop tutorial stages advance from gameplay events regardless of input device or action ordering.
+- [ ] Normal completion and Skip persist once; Help replay and `tutorial=1|0|move|mine|collect|threat` do not alter the saved first-run result.
+- [ ] Showcase/profile runs suppress the tutorial unless explicitly overridden, and pinned stage overrides remain stable for visual QA.
+- [ ] Held fire can extract Flux, while short controlled bursts preserve more planetoid yield.
 - [ ] Portrait and landscape touch layouts preserve safe areas; Swap supports southpaw play; cancellation and background paths release held input and pause safely.
 - [ ] Validate touch on physical-device Safari and Chrome; current mobile coverage is limited to browser viewport and pointer-event verification.
 - [ ] The Cinder Expanse can be won, lost, paused, restarted, and advanced without console errors.
