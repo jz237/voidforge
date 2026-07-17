@@ -28,6 +28,12 @@ import {
   SPOKEN_GUIDANCE_STORAGE_KEY,
   resolveGuidance,
 } from "./spoken-guidance.mjs";
+import {
+  DREAD_ENGINE_AWAKENING_SECONDS,
+  advanceAwakeningCountdown,
+  expandingWaveCrossedCircle,
+  predictPursuitTarget,
+} from "./boss-behavior.mjs";
 
 type ScreenMode = "title" | "playing" | "paused" | "gameover";
 type ContactKind = "worker" | "warrior" | "boss";
@@ -238,7 +244,20 @@ interface DreadEngine extends Entity {
   sensorArray: Container;
   scorchNodes: Graphics[];
   deathPose: number;
+  awakeningRemaining: number;
+  disruptionCooldown: number;
+  disruptionChargeRemaining: number;
+  disruptionAge: number;
+  disruptionHit: boolean;
+  disruptionWave: Graphics;
+  contactWarningCooldown: number;
 }
+
+const DISRUPTION_CHARGE_SECONDS = 0.95;
+const DISRUPTION_DURATION_SECONDS = 0.82;
+const DISRUPTION_INNER_RADIUS = 190;
+const DISRUPTION_OUTER_RADIUS = 760;
+const DISRUPTION_TRIGGER_RANGE = 1080;
 
 interface RuntimeProfile {
   viewport: string;
@@ -1615,6 +1634,8 @@ export function VoidforgeGame() {
         threatHalo.blendMode = "add";
         const targetingBeam = new PIXI.Graphics();
         targetingBeam.blendMode = "add";
+        const disruptionWave = new PIXI.Graphics();
+        disruptionWave.blendMode = "add";
         const ambient = new PIXI.Graphics();
         ambient.circle(0, 0, 228).fill({ color: 0x8f35ff, alpha: 0.04 });
         ambient.circle(0, 0, 178).fill({ color: 0xff5b48, alpha: 0.025 });
@@ -1845,11 +1866,11 @@ export function VoidforgeGame() {
         reactor.circle(0, 0, 7).fill({ color: 0xfff2e8, alpha: 0.92 });
         reactor.blendMode = "add";
         aperture.addChild(reactor);
-        root.addChild(coreHalo, core, aperture);
+        root.addChild(coreHalo, core, aperture, disruptionWave);
         return {
           root, parts, outerRing, innerRing, core, damageLayers, energyCage,
           aperture, coreHalo, threatHalo, targetingBeam, forgeAura, apertureBlades,
-          weaponArms, driveVents, conduitPulse, sensorArray, scorchNodes,
+          weaponArms, driveVents, conduitPulse, sensorArray, scorchNodes, disruptionWave,
         };
       };
 
@@ -1883,6 +1904,9 @@ export function VoidforgeGame() {
           weaponArms: graphics.weaponArms, driveVents: graphics.driveVents,
           conduitPulse: graphics.conduitPulse, sensorArray: graphics.sensorArray,
           scorchNodes: graphics.scorchNodes, deathPose: 0,
+          awakeningRemaining: 0, disruptionCooldown: 0,
+          disruptionChargeRemaining: -1, disruptionAge: -1, disruptionHit: false,
+          disruptionWave: graphics.disruptionWave, contactWarningCooldown: 0,
         };
       };
 
@@ -2398,6 +2422,13 @@ export function VoidforgeGame() {
         pieces = RULES.enginePieces;
         engine.active = true;
         engine.health = RULES.engineHits;
+        engine.awakeningRemaining = DREAD_ENGINE_AWAKENING_SECONDS;
+        engine.disruptionCooldown = 3.2;
+        engine.disruptionChargeRemaining = -1;
+        engine.disruptionAge = -1;
+        engine.disruptionHit = false;
+        engine.contactWarningCooldown = 0;
+        engine.disruptionWave.clear();
         activationPulse = localReducedFx ? 0 : 2.2;
         audio.setMusicIntensity(1);
         syncEngineParts();
@@ -2405,7 +2436,7 @@ export function VoidforgeGame() {
         spawnImpactFx(engine.x, engine.y, 0xc071ff, 250, 1.15);
         triggerShockwave(engine.x, engine.y, 1.05, 0.68);
         audio.warning(1);
-        notify("THE DREAD ENGINE IS AWAKE", true);
+        notify("DREAD ENGINE AWAKENING · KEEP MOVING", true);
         speakVoiceLine(ENGINE_DIALOGUE.awake, "engine");
         speakGuidance("mission:engine-awake", false);
       };
@@ -2429,10 +2460,14 @@ export function VoidforgeGame() {
         audio.construction(pieces / RULES.enginePieces, panFor(engine.x));
         spawnBurst(engine.x, engine.y, pieces % 2 ? 0xff8048 : 0x9e71ff, 12, 0.7);
         syncEngineParts();
-        if (pieces === 14) {
-          audio.warning(0.55);
-          notify("ASSEMBLY CASCADE DETECTED", true);
-          speakGuidance("mission:assembly-critical");
+        if ([5, 10, 15, 19].includes(pieces)) {
+          const critical = pieces >= 15;
+          audio.warning(0.28 + (pieces / RULES.enginePieces) * 0.48);
+          notify(
+            pieces === 19 ? "FINAL MODULE IN TRANSIT" : `ASSEMBLY MILESTONE · ${pieces}/20`,
+            critical,
+          );
+          if (pieces === 15) speakGuidance("mission:assembly-critical");
         }
         if (pieces >= RULES.enginePieces) activateEngine();
       };
@@ -2441,8 +2476,12 @@ export function VoidforgeGame() {
         if (engine.destroyed) return;
         engine.destroyed = true;
         engine.active = false;
+        engine.awakeningRemaining = 0;
+        engine.disruptionChargeRemaining = -1;
+        engine.disruptionAge = -1;
+        engine.disruptionWave.clear();
         activationPulse = localReducedFx ? 0 : 0.72;
-        score += 15000;
+        score += 10000;
         victoryTimer = holdShowcase ? 999 : 5.5;
         shake = localReducedFx ? 10 : 48;
         audio.setMusicIntensity(0);
@@ -2500,6 +2539,9 @@ export function VoidforgeGame() {
         audio.playerDeath();
         if (lives <= 0) {
           cancelVoice();
+          engine.disruptionChargeRemaining = -1;
+          engine.disruptionAge = -1;
+          engine.disruptionWave.clear();
           localMode = "gameover";
           setScreenMode("gameover");
           audio.setEngineThrust(0);
@@ -2559,7 +2601,13 @@ export function VoidforgeGame() {
         const tacticalStatus = engine.destroyed
           ? "FIELD SECURE"
           : engine.active
-            ? engine.health <= 4 ? "CORE BREACH" : "DREAD LOCK"
+            ? engine.awakeningRemaining > 0
+              ? "AWAKENING"
+              : engine.disruptionChargeRemaining >= 0
+                ? "BREAK RANGE"
+                : engine.disruptionAge >= 0
+                  ? "WAVE FRONT"
+                  : engine.health <= 4 ? "CORE BREACH" : "DREAD LOCK"
             : pieces >= 15
               ? "ASSEMBLY CRITICAL"
               : fabricators.some((fabricator) => !fabricator.dead && fabricator.carrying)
@@ -2711,6 +2759,8 @@ export function VoidforgeGame() {
         if (["pursuit", "bombardment", "destruction"].includes(scene)) {
           pieces = RULES.enginePieces;
           activateEngine();
+          engine.awakeningRemaining = 0;
+          engine.disruptionCooldown = 2.6;
           engine.x = player.x + 560;
           engine.y = player.y - 130;
           engine.view.position.set(engine.x, engine.y);
@@ -2990,7 +3040,7 @@ export function VoidforgeGame() {
             crystal.dead = true;
             if (tutorialTarget?.id === crystal.id) tutorialTarget = undefined;
             charges = Math.min(RULES.maxCharges, charges + 1);
-            score += 200;
+            score += 100;
             applyTutorialEvent("shard-collected");
             audio.crystal(panFor(crystal.x));
             spawnImpactFx(crystal.x, crystal.y, 0x69f3ff, 34, 0.32);
@@ -3142,11 +3192,104 @@ export function VoidforgeGame() {
           }
         }
 
+        let pursuitTargetX = player.x;
+        let pursuitTargetY = player.y;
+        let awakeningProgress = engine.active ? 1 : 0;
         if (engine.active && !engine.destroyed) {
-          steer(engine, player.x, player.y, 310 + zone * 13, dt);
-          engine.x += engine.vx * dt;
-          engine.y += engine.vy * dt;
-          if (circlesOverlap(player, engine)) killPlayer();
+          const awakening = advanceAwakeningCountdown(engine.awakeningRemaining, dt);
+          engine.awakeningRemaining = awakening.remaining;
+          awakeningProgress = awakening.progress;
+          if (awakening.justCompleted) {
+            audio.warning(0.62);
+            notify("PURSUIT VECTOR ACQUIRED", true);
+          }
+
+          if (awakening.complete) {
+            const bossDistance = distance(engine.x, engine.y, player.x, player.y);
+            engine.contactWarningCooldown = Math.max(0, engine.contactWarningCooldown - dt);
+            const relativeX = player.x - engine.x;
+            const relativeY = player.y - engine.y;
+            const closingSpeed = -(
+              relativeX * (player.vx - engine.vx) + relativeY * (player.vy - engine.vy)
+            ) / Math.max(1, bossDistance);
+            if (
+              bossDistance < 560
+              && closingSpeed > 95
+              && engine.contactWarningCooldown === 0
+              && engine.disruptionChargeRemaining < 0
+              && engine.disruptionAge < 0
+            ) {
+              engine.contactWarningCooldown = 2.4;
+              audio.warning(0.58);
+              notify("COLLISION VECTOR · EVADE", true);
+            }
+            const leadSeconds = clamp(bossDistance / 1050, 0.42, 1.05);
+            const predictedTarget = predictPursuitTarget(player, leadSeconds, {
+              minX: 180,
+              maxX: RULES.worldWidth - 180,
+              minY: 180,
+              maxY: RULES.worldHeight - 180,
+            });
+            pursuitTargetX = predictedTarget.x;
+            pursuitTargetY = predictedTarget.y;
+            const chargingWave = engine.disruptionChargeRemaining >= 0;
+            steer(engine, pursuitTargetX, pursuitTargetY, (310 + zone * 13) * (chargingWave ? 0.58 : 1), dt);
+            engine.x = clamp(engine.x + engine.vx * dt, 220, RULES.worldWidth - 220);
+            engine.y = clamp(engine.y + engine.vy * dt, 220, RULES.worldHeight - 220);
+            if (circlesOverlap(player, engine)) killPlayer();
+
+            if (engine.disruptionAge >= 0) {
+              const previousRadius = lerp(
+                DISRUPTION_INNER_RADIUS,
+                DISRUPTION_OUTER_RADIUS,
+                clamp(engine.disruptionAge / DISRUPTION_DURATION_SECONDS, 0, 1),
+              );
+              engine.disruptionAge = Math.min(DISRUPTION_DURATION_SECONDS, engine.disruptionAge + dt);
+              const nextRadius = lerp(
+                DISRUPTION_INNER_RADIUS,
+                DISRUPTION_OUTER_RADIUS,
+                clamp(engine.disruptionAge / DISRUPTION_DURATION_SECONDS, 0, 1),
+              );
+              if (
+                !engine.disruptionHit
+                && player.invulnerable <= 0
+                && expandingWaveCrossedCircle(
+                  { x: engine.x, y: engine.y, previousRadius, nextRadius },
+                  player,
+                )
+              ) {
+                engine.disruptionHit = true;
+                killPlayer();
+              }
+              if (engine.disruptionAge >= DISRUPTION_DURATION_SECONDS) {
+                engine.disruptionAge = -1;
+                engine.disruptionCooldown = Math.max(4.8, 6.4 - zone * 0.18);
+              }
+            } else if (engine.disruptionChargeRemaining >= 0) {
+              engine.disruptionChargeRemaining = Math.max(0, engine.disruptionChargeRemaining - dt);
+              if (engine.disruptionChargeRemaining === 0) {
+                engine.disruptionChargeRemaining = -1;
+                engine.disruptionAge = 0;
+                engine.disruptionHit = false;
+                triggerShockwave(engine.x, engine.y, 0.78, DISRUPTION_DURATION_SECONDS);
+                spawnImpactFx(engine.x, engine.y, 0xc071ff, 210, 0.82);
+                audio.explosion(0.55, panFor(engine.x));
+                shake = Math.max(shake, localReducedFx ? 3 : 13);
+                notify("DISRUPTION WAVE · EVADE THE RING", true);
+              }
+            } else {
+              engine.disruptionCooldown = Math.max(0, engine.disruptionCooldown - dt);
+              if (engine.disruptionCooldown === 0 && bossDistance <= DISRUPTION_TRIGGER_RANGE) {
+                engine.disruptionChargeRemaining = DISRUPTION_CHARGE_SECONDS;
+                audio.warning(0.82);
+                notify("DISRUPTION CHARGE · BREAK RANGE", true);
+              }
+            }
+          } else {
+            const brake = Math.exp(-4.2 * dt);
+            engine.vx *= brake;
+            engine.vy *= brake;
+          }
         }
         engine.view.position.set(engine.x, engine.y);
         const behaviorPhase = motionClock % 5.1;
@@ -3169,8 +3312,50 @@ export function VoidforgeGame() {
         engine.core.scale.set(corePulse);
         engine.coreHalo.scale.set(0.94 + Math.sin(motionClock * 4.2) * (engine.active ? 0.08 : 0.025));
         engine.forgeAura.scale.set(0.92 + (pieces / RULES.enginePieces) * 0.08 + (engine.active ? Math.sin(motionClock * 1.6) * 0.025 : 0));
+        engine.disruptionWave.clear();
+        engine.disruptionWave.blendMode = localReducedFlashing ? "normal" : "add";
+        engine.disruptionWave.rotation = localReducedFx ? 0 : -motionClock * 0.24;
+        if (engine.active && !engine.destroyed && engine.awakeningRemaining > 0) {
+          const alignmentRadius = 184 + awakeningProgress * 68;
+          const alignmentAlpha = localReducedFlashing ? 0.58 : 0.48 + awakeningProgress * 0.34;
+          engine.disruptionWave.circle(0, 0, alignmentRadius)
+            .stroke({ color: 0xe4d5ff, width: 2.4, alpha: alignmentAlpha });
+          for (let segment = 0; segment < 12; segment += 1) {
+            const start = (segment / 12) * Math.PI * 2;
+            engine.disruptionWave.arc(0, 0, alignmentRadius + (segment % 2 ? 13 : -13), start, start + 0.19)
+              .stroke({ color: segment % 2 ? 0xff9a72 : 0xa97aff, width: 4.2, alpha: alignmentAlpha });
+          }
+        } else if (engine.active && !engine.destroyed && engine.disruptionChargeRemaining >= 0) {
+          const chargeProgress = 1 - engine.disruptionChargeRemaining / DISRUPTION_CHARGE_SECONDS;
+          const chargeRadius = localReducedFx ? 218 : 252 - chargeProgress * 34;
+          const chargeAlpha = localReducedFlashing ? 0.72 : 0.62 + chargeProgress * 0.3;
+          engine.disruptionWave.circle(0, 0, chargeRadius)
+            .stroke({ color: 0xfff0e7, width: 2.4, alpha: chargeAlpha });
+          engine.disruptionWave.circle(0, 0, chargeRadius + 12)
+            .stroke({ color: 0xc28cff, width: 5.4, alpha: chargeAlpha * 0.68 });
+          for (let segment = 0; segment < 8; segment += 1) {
+            const angle = (segment / 8) * Math.PI * 2;
+            engine.disruptionWave.moveTo(Math.cos(angle) * (chargeRadius - 25), Math.sin(angle) * (chargeRadius - 25))
+              .lineTo(Math.cos(angle) * (chargeRadius + 23), Math.sin(angle) * (chargeRadius + 23))
+              .stroke({ color: segment % 2 ? 0xffa278 : 0xd8c7ff, width: 2.2, alpha: chargeAlpha });
+          }
+        } else if (engine.active && !engine.destroyed && engine.disruptionAge >= 0) {
+          const waveProgress = clamp(engine.disruptionAge / DISRUPTION_DURATION_SECONDS, 0, 1);
+          const waveRadius = lerp(DISRUPTION_INNER_RADIUS, DISRUPTION_OUTER_RADIUS, waveProgress);
+          const waveAlpha = (localReducedFlashing ? 0.72 : 0.88 - waveProgress * 0.3)
+            * Math.max(0.58, localEffectIntensity);
+          engine.disruptionWave.circle(0, 0, waveRadius)
+            .stroke({ color: 0xf7efff, width: 3.2, alpha: waveAlpha });
+          engine.disruptionWave.circle(0, 0, waveRadius - 10)
+            .stroke({ color: 0xff9368, width: 6.8, alpha: waveAlpha * 0.68 });
+          for (let segment = 0; segment < 16; segment += 1) {
+            const start = (segment / 16) * Math.PI * 2;
+            engine.disruptionWave.arc(0, 0, waveRadius + 10, start, start + 0.12)
+              .stroke({ color: segment % 2 ? 0xba8cff : 0xffb38d, width: 4.4, alpha: waveAlpha });
+          }
+        }
         if (!engine.destroyed) {
-          const targetAngle = Math.atan2(player.y - engine.y, player.x - engine.x);
+          const targetAngle = Math.atan2(pursuitTargetY - engine.y, pursuitTargetX - engine.x);
           engine.weaponArms.forEach((arm, index) => {
             const desired = targetAngle + (index - 1) * (lockPhase ? 0.08 : 0.24);
             let diff = desired - arm.rotation;
@@ -3194,9 +3379,9 @@ export function VoidforgeGame() {
           ? 0.05
           : (engine.active ? 0.48 + visualPulse * (localReducedFlashing ? 0.08 : 0.34) : 0.12 + (pieces / RULES.enginePieces) * 0.38);
         engine.targetingBeam.clear();
-        if (engine.active && !engine.destroyed) {
-          const beamX = player.x - engine.x;
-          const beamY = player.y - engine.y;
+        if (engine.active && !engine.destroyed && engine.awakeningRemaining <= 0) {
+          const beamX = pursuitTargetX - engine.x;
+          const beamY = pursuitTargetY - engine.y;
           const beamLength = Math.max(1, Math.hypot(beamX, beamY));
           const ux = beamX / beamLength;
           const uy = beamY / beamLength;
@@ -3220,6 +3405,7 @@ export function VoidforgeGame() {
         }
 
         for (const projectile of projectiles) {
+          if (projectile.dead) continue;
           projectile.age += dt;
           if (projectile.age >= projectile.lifetime) { projectile.dead = true; continue; }
           if (projectile.kind === "nova" && engine.active && !engine.destroyed) {
@@ -3295,8 +3481,9 @@ export function VoidforgeGame() {
               if (!fabricator.dead && circlesOverlap(projectile, fabricator)) {
                 projectile.dead = true;
                 fabricator.dead = true;
-                if (fabricator.carrying) spawnCrystal(fabricator.x, fabricator.y);
-                score += 150;
+                const wasCarrying = fabricator.carrying;
+                if (wasCarrying) spawnCrystal(fabricator.x, fabricator.y);
+                score += wasCarrying ? 250 : 150;
                 spawnImpactFx(fabricator.x, fabricator.y, 0xff8a48, 68, 0.58);
                 spawnBurst(fabricator.x, fabricator.y, 0xff8a48, 26, 0.7);
                 spawnWreckage(fabricator.x, fabricator.y, 0xff8a48, 24, 6, 4.8);
@@ -3313,7 +3500,7 @@ export function VoidforgeGame() {
                 spawnBurst(sentinel.x, sentinel.y, 0x9089ff, 12, 0.45);
                 if (sentinel.health <= 0) {
                   sentinel.dead = true;
-                  score += 500;
+                  score += 400;
                   audio.explosion(0.45, panFor(sentinel.x));
                   spawnImpactFx(sentinel.x, sentinel.y, 0xa36cff, 84, 0.72);
                   spawnBurst(sentinel.x, sentinel.y, 0x7e8fff, 30, 0.8);
@@ -3328,7 +3515,7 @@ export function VoidforgeGame() {
             if (engine.active && !engine.destroyed && circlesOverlap(projectile, engine)) {
               projectile.dead = true;
               engine.health = Math.max(0, engine.health - 1);
-              score += 500;
+              score += 750;
               audio.bossHit(panFor(engine.x));
               shake = Math.max(shake, localReducedFx ? 4 : 16);
               spawnImpactFx(projectile.x, projectile.y, engine.health % 2 ? 0xff8846 : 0xb56bff, 96, 0.78);
@@ -3340,10 +3527,22 @@ export function VoidforgeGame() {
             }
             if (projectile.age > 0.2) {
               const interceptedByRock = planetoids.some((rock) => !rock.dead && circlesOverlap(projectile, rock));
-              const interceptor = sentinels.find((sentinel) => !sentinel.dead && circlesOverlap(projectile, sentinel));
-              if (interceptedByRock || interceptor) {
+              const sentinelInterceptor = sentinels.find((sentinel) => !sentinel.dead && circlesOverlap(projectile, sentinel));
+              const fabricatorInterceptor = fabricators.find((fabricator) => !fabricator.dead && circlesOverlap(projectile, fabricator));
+              const boltInterceptor = projectiles.find((candidate) => (
+                candidate !== projectile
+                && !candidate.dead
+                && candidate.kind === "bolt"
+                && circlesOverlap(projectile, candidate)
+              ));
+              if (interceptedByRock || sentinelInterceptor || fabricatorInterceptor || boltInterceptor) {
                 projectile.dead = true;
-                if (interceptor) interceptor.dead = true;
+                if (sentinelInterceptor) sentinelInterceptor.dead = true;
+                if (fabricatorInterceptor) {
+                  fabricatorInterceptor.dead = true;
+                  if (fabricatorInterceptor.carrying) spawnCrystal(fabricatorInterceptor.x, fabricatorInterceptor.y);
+                }
+                if (boltInterceptor) boltInterceptor.dead = true;
                 spawnImpactFx(projectile.x, projectile.y, 0xffb45b, 92, 0.72);
                 spawnBurst(projectile.x, projectile.y, 0xffb45b, 42, 0.85);
                 audio.explosion(0.5, panFor(projectile.x));
@@ -3833,6 +4032,10 @@ export function VoidforgeGame() {
         }
         keys.add(event.code);
         if (event.repeat) return;
+        if (event.code === "KeyM") {
+          event.preventDefault();
+          setMuted((value) => !value);
+        }
         if (event.code === "KeyP" || event.code === "Escape") togglePause();
         if (event.code === "KeyR" && localMode === "gameover") startGame();
         if (event.code === "Enter" && localMode === "title") startGame();
@@ -3844,7 +4047,11 @@ export function VoidforgeGame() {
         lastGamepadBomb = false;
         setTouchResetKey((value) => value + 1);
       };
-      const onBlur = () => { clearInputs(); cancelVoice(); };
+      const onBlur = () => {
+        clearInputs();
+        cancelVoice();
+        if (localMode === "playing") togglePause();
+      };
       const onVisibilityChange = () => {
         clearInputs();
         if (document.hidden && localMode === "playing") togglePause();
@@ -4008,7 +4215,7 @@ export function VoidforgeGame() {
                     {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
                   </button>
                 )}
-                <span className="version-mark">Vesper flight core<br />build 01.30</span>
+                <span className="version-mark">Vesper flight core<br />build 01.31</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -4133,6 +4340,7 @@ export function VoidforgeGame() {
               <div><h3>Mine carefully</h3><p>Hold fire to cut Flux from planetoids. Short controlled bursts preserve the rock and extract more crystals.</p></div>
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
               <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
+              <div><h3>Break the wave</h3><p>You keep control while the Engine awakens. When DISRUPTION CHARGE appears, thrust beyond the segmented ring before it expands.</p></div>
               <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
               <div><h3>Accessibility</h3><p>Reduce motion or flashing, tune effects and color, increase contrast, or disable the optional flight-guide voice. Sound is the master control for game audio and voice.</p></div>
             </div>

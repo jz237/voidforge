@@ -47,7 +47,7 @@ test("held mobile fire still extracts Flux while short bursts remain more effici
 test("charge inventory is capped", () => {
   const collected = collectShard({ charges: RULES.maxCharges, score: 0 });
   assert.equal(collected.charges, RULES.maxCharges);
-  assert.equal(collected.score, 200);
+  assert.equal(collected.score, 100);
 });
 
 test("fabricator deposits activate the Dread Engine at twenty pieces", () => {
@@ -72,6 +72,7 @@ test("thirteen Nova Charge strikes destroy the active Dread Engine", () => {
   assert.equal(run.engineHealth, 0);
   assert.equal(run.zoneComplete, true);
   assert.equal(run.charges, 0);
+  assert.equal(run.score, RULES.engineHits * 750 + 10000);
 });
 
 test("zone progression resets construction but preserves the run", () => {

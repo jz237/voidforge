@@ -110,7 +110,7 @@ export function collectShard(run) {
   return {
     ...run,
     charges: Math.min(RULES.maxCharges, run.charges + 1),
-    score: run.score + 200,
+    score: run.score + 100,
   };
 }
 
@@ -137,7 +137,7 @@ export function strikeEngine(run) {
     ...run,
     charges: run.charges - 1,
     engineHealth,
-    score: run.score + (engineHealth === 0 ? 15000 : 500),
+    score: run.score + 750 + (engineHealth === 0 ? 10000 : 0),
     zoneComplete: engineHealth === 0,
   };
 }
