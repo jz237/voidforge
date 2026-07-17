@@ -34,6 +34,9 @@ test("pinned visual-QA steps stay fixed and every step remains skippable", () =>
   const pinned = createTutorialState("mine", true);
   assert.equal(advanceTutorial(pinned, "shard-extracted").step, "mine");
   assert.equal(advanceTutorial(pinned, "skip").complete, true);
+
+  const pinnedMission = createTutorialState("threat", true);
+  assert.equal(advanceTutorial(pinnedMission, "acknowledge").complete, true);
 });
 
 test("tutorial overrides take precedence without mutating first-run persistence", () => {

@@ -3929,7 +3929,7 @@ export function VoidforgeGame() {
                 >
                   {ready ? tutorialRecommended ? "Start guided flight" : "Enter the Expanse" : "Calibrating field…"}
                 </button>
-                <span className="version-mark">Vesper flight core<br />build 01.28</span>
+                <span className="version-mark">Vesper flight core<br />build 01.29</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight teaches movement, mining, Flux, and the Dread Engine.</p>
