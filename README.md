@@ -37,18 +37,20 @@ Laser fire mines planetoids as well as attacking enemies. Controlled bursts rele
 
 ## Accessibility and display
 
-The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, and fullscreen controls. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, HUD meters, scanner shapes, and audio rather than color alone.
+The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, and fullscreen controls. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, HUD threat status, a player-relative shape-coded scanner, and audio rather than color alone.
 
-The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. A live 4K bombardment profile recorded 60 FPS average with a 16.8 ms p95 frame time; see the [performance capture](artifacts/performance-3840x2160.json).
+The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Live verification held 60 FPS at both target resolutions; the 4K bombardment profile recorded a 16.8 ms p95 frame time. See the [performance capture](artifacts/performance-3840x2160.json).
 
-Ordered WebGL layers separate the Vesper and both friendly and hostile shots from terrain, pickups, enemies, and decorative effects, keeping them readable during dense combat. The player, enemies, planetoids, and Dread Engine now use rebuilt, material-rich art with illuminated panels, fractured mineral surfaces, and layered mechanical depth. Directional speed streaks, far-debris/dust/star parallax, articulated motion, persistent damage, and threat-aware camera lead and zoom add depth without changing the playfield's arcade clarity.
+Ordered WebGL layers keep the Vesper, pickups, critical projectiles, and readability cues above atmospheric haze, near/far debris, terrain, enemies, and decorative effects. The material-rich player, enemy, planetoid, and Dread Engine art combines illuminated panels, fractured mineral surfaces, layered mechanical depth, persistent damage, and threat-aware camera lead and zoom.
 
-Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joined by expanding impact rings and shockwave distortion. The WebGL post-processing pipeline adds restrained heat refraction, selective two-tap bloom, split-tone grading, danger cues, and scene-wide color-vision transforms. Reduced Motion, Reduced Flashing, effect intensity, and FX Off scale or disable these treatments immediately while retaining essential gameplay feedback.
+The Vesper adds shield response, weapon recoil, and a localized muzzle flash; mining produces a readable extraction pulse and animated crystal motion. Fabricators and Sentinels pose and move according to mining, carrying, pursuit, and attack intent, while shape-coded projectile trails make fire ownership readable at speed. The Dread Engine uses asymmetric machine clusters, a telegraphed targeting beam, and a contained mechanical aura rather than a facial silhouette.
+
+Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joined by expanding impact rings and shockwave distortion. The WebGL post-processing pipeline adds restrained heat refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and scene-wide color-vision transforms. Reduced Motion, Reduced Flashing, effect intensity, and FX Off scale or disable these treatments immediately while retaining essential gameplay feedback.
 
 ## Architecture
 
-- `app/game/VoidforgeGame.tsx` — PixiJS WebGL renderer, simulation, entities, camera, input, HUD, and deterministic showcase scenes
-- `app/game/postfx.ts` — one-pass custom WebGL post-processing and scene-wide accessibility color transforms
+- `app/game/VoidforgeGame.tsx` — PixiJS WebGL renderer, simulation, intent-driven entity animation, camera, input, HUD, and deterministic showcase scenes
+- `app/game/postfx.ts` — custom WebGL post-processing, cinematic danger framing, and scene-wide accessibility color transforms
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling

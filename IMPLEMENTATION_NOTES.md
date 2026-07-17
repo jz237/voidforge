@@ -18,8 +18,8 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Resource/weapon | Flux Shards become spiral-guided Nova Charges; new forms, names, trails, and sounds |
 | Construction | Radial machine modules align around a scaffold; no facial assembly |
 | World | Native widescreen wrapping arena with directional camera lead and threat zoom |
-| Graphics | Material-rich 2D WebGL art, dynamic lighting, typed particles, layered parallax, damage states, and restrained post-processing |
-| Interface | Widescreen holographic rail, shape-coded contacts, vector icons, and explicit construction ticks |
+| Graphics | Material-rich 2D WebGL art, atmospheric depth, intent-driven animation, projectile trails, damage states, and restrained cinematic post-processing |
+| Interface | Widescreen holographic rail, player-relative scanner, threat status, vector icons, and explicit construction ticks |
 | Audio | Original Web Audio synthesis, adaptive layers, spatial effects, and new transmissions |
 | Controls | Analog stick plus six-band keyboard thrust ramp, rebinding, and adjustable dead zone |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
@@ -54,26 +54,31 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Pool shots, charges, enemy projectiles, debris, and high-frequency particles.
 - Seed random generation for reproducible screenshots and automated scenarios.
 - Treat 1920×1080 as the layout coordinate system; resolution and device pixel ratio affect render density, not mechanics.
-- Keep terrain, pickups, enemies, the player, friendly shots, hostile shots, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
-- Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, danger cues, and color-vision transforms through the custom PixiJS v8 post-processing pipeline.
+- Keep haze, debris, terrain, pickups, enemies, the player, friendly shots, hostile shots, readability cues, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
+- Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and color-vision transforms through the custom PixiJS v8 post-processing pipeline.
 - Fall back gracefully when an optional filter is unavailable. Bloom, distortion, and grading must never gate play.
 
 ## Visual guardrails
 
 - Gameplay silhouettes must read with bloom and color removed.
 - Bright backgrounds remain behind a contrast mask or are repositioned away from active combat.
-- Ordered render layers isolate the player and friendly and hostile shots from display-list insertion changes; decorative effects remain constrained so they cannot hide hazards.
+- Atmospheric haze and near/far debris add depth below the protected player, pickup, critical-projectile, and readability layers; decorative effects cannot hide hazards.
 - Camera lead follows travel direction; nearby threats and the Dread Engine produce a smooth, bounded zoom-out.
 - Rebuilt player, enemy, planetoid, and Dread Engine art uses readable material layers, emissive accents, and illuminated damage without weakening silhouettes.
-- Directional speed streaks and far-debris/dust/star parallax respond to velocity, while Fabricators and Sentinels use articulated secondary motion instead of rigid sprite movement.
+- Vesper shield response, recoil, and muzzle flash remain localized around the ship and never replace collision or ammunition feedback.
+- Mining pulses expose extraction timing, while crystal motion preserves a stable collectible silhouette and predictable pickup path.
+- Directional speed streaks and debris/dust/star parallax respond to velocity; Fabricators and Sentinels use intent-driven poses for mining, carrying, pursuit, and attack instead of rigid sprite movement.
+- Friendly, hostile, and Nova projectile trails retain distinct shapes and protected contrast at speed rather than relying only on hue.
+- The Dread Engine's asymmetric clusters, targeting beam, and contained aura communicate orientation and attack intent without facial imagery.
 - Sparks, shards, smoke, and plasma use typed visual behavior; expanding impact rings and shockwaves remain subordinate to projectiles, pickups, and collision cues.
 - Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone.
-- Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and restrained danger cues share the post-processing pipeline with scene-wide color-vision transforms.
+- Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and cinematic trauma/danger framing share the post-processing pipeline with scene-wide color-vision transforms.
+- HUD threat status and the player-relative scanner redundantly identify immediate danger, contact type, bearing, and Dread Engine state.
 - Screen shake is capped, localized where possible, and fully disabled by Reduced Motion.
 - Full-screen white flashes are not used. Reduced Flashing is the safe default if preference detection is unavailable.
 - Reduced Motion, Reduced Flashing, Effect Intensity, and FX Off directly scale or disable the matching shader, particle, camera, and motion cues.
 - At 4K, assets gain detail but not smaller apparent size; HUD maintains its 1080p-equivalent measurements.
-- The verified live 4K bombardment profile is 60 FPS average with a 16.8 ms p95 frame time.
+- Live verification holds 60 FPS at both 1920×1080 and 3840×2160; the 4K bombardment profile records a 16.8 ms p95 frame time.
 
 ## Audio guardrails
 

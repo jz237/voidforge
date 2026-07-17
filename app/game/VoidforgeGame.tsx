@@ -34,6 +34,8 @@ interface HudState {
   engineHealth: number;
   engineActive: boolean;
   contacts: RadarContact[];
+  threatLevel: number;
+  tacticalStatus: string;
 }
 
 interface GameApi {
@@ -67,6 +69,11 @@ interface Player extends Entity {
   hull: Container;
   portJet: Graphics;
   starboardJet: Graphics;
+  shield: Container;
+  muzzleFlash: Graphics;
+  armorSheen: Graphics;
+  navLights: Graphics;
+  recoil: number;
 }
 
 interface Planetoid extends Entity {
@@ -78,11 +85,18 @@ interface Planetoid extends Entity {
   damageLayer: Graphics;
   oreGlow: Graphics;
   maxIntegrity: number;
+  miningPulse: Graphics;
+  miningHeat: number;
+  spin: number;
 }
 
 interface Crystal extends Entity {
   age: number;
   claimedBy?: number;
+  halo: Graphics;
+  glint: Graphics;
+  trail: Graphics;
+  phase: number;
 }
 
 interface Fabricator extends Entity {
@@ -95,6 +109,9 @@ interface Fabricator extends Entity {
   cargoGlow: Graphics;
   engineFlare: Graphics;
   phase: number;
+  upperClaw: Graphics;
+  lowerClaw: Graphics;
+  scanner: Graphics;
 }
 
 interface Sentinel extends Entity {
@@ -107,6 +124,8 @@ interface Sentinel extends Entity {
   weaponCore: Graphics;
   engineFlare: Graphics;
   phase: number;
+  chargeMarks: Container;
+  shotPulse: number;
 }
 
 interface Projectile extends Entity {
@@ -115,6 +134,7 @@ interface Projectile extends Entity {
   age: number;
   lifetime: number;
   accent?: Container;
+  trail: Graphics;
 }
 
 interface Particle extends Entity {
@@ -148,6 +168,10 @@ interface DreadEngine extends Entity {
   energyCage: Container;
   aperture: Container;
   coreHalo: Graphics;
+  threatHalo: Graphics;
+  targetingBeam: Graphics;
+  forgeAura: Graphics;
+  apertureBlades: Graphics[];
 }
 
 interface RuntimeProfile {
@@ -169,6 +193,8 @@ const INITIAL_HUD: HudState = {
   engineHealth: RULES.engineHits,
   engineActive: false,
   contacts: [],
+  threatLevel: 0,
+  tacticalStatus: "SECTOR QUIET",
 };
 
 const EMPTY_API: GameApi = {
@@ -216,10 +242,11 @@ function MissionBriefing() {
   );
 }
 
-function Radar({ contacts }: { contacts: RadarContact[] }) {
+function Radar({ contacts, status, danger }: { contacts: RadarContact[]; status: string; danger: number }) {
   return (
-    <div className="radar-wrap" aria-label="Tactical scanner">
+    <div className={`radar-wrap ${danger > 0.62 ? "danger" : ""}`} aria-label={`Tactical scanner: ${status}`}>
       <div className="radar">
+        <div className="radar-rings" />
         <div className="radar-sweep" />
         {contacts.map((contact) => (
           <span
@@ -230,6 +257,7 @@ function Radar({ contacts }: { contacts: RadarContact[] }) {
         ))}
       </div>
       <span className="radar-caption">Vector scanner · 2.4 AU</span>
+      <span className="radar-status"><i aria-hidden="true" />{status}</span>
     </div>
   );
 }
@@ -237,7 +265,10 @@ function Radar({ contacts }: { contacts: RadarContact[] }) {
 function HeadsUpDisplay({ hud }: { hud: HudState }) {
   const integritySegments = Math.ceil((hud.engineHealth / RULES.engineHits) * RULES.enginePieces);
   return (
-    <div className="hud" aria-label="Game status">
+    <div className={`hud ${hud.threatLevel > 0.62 ? "threat-high" : ""}`} aria-label="Game status">
+      <div className="tactical-frame" aria-hidden="true">
+        <i /><i /><i /><i />
+      </div>
       <div className="hud-top">
         <div className="hud-cluster">
           <div className="hud-stat">
@@ -249,7 +280,7 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
             <span className="hud-value">0{hud.zone}</span>
           </div>
         </div>
-        <Radar contacts={hud.contacts} />
+        <Radar contacts={hud.contacts} status={hud.tacticalStatus} danger={hud.threatLevel} />
         <div className="hud-cluster right">
           <div className="hud-stat">
             <span className="hud-label">Nova charges</span>
@@ -414,12 +445,15 @@ export function VoidforgeGame() {
       background.alpha = 0.64;
       app.stage.addChild(background);
 
+      const hazeLayer = new PIXI.Container();
       const starLayer = new PIXI.Container();
       const dustLayer = new PIXI.Container();
       const farDebrisLayer = new PIXI.Container();
+      const nearDebrisLayer = new PIXI.Container();
       const world = new PIXI.Container();
       const flashLayer = new PIXI.Container();
       const terrainLayer = new PIXI.Container();
+      const lowFxLayer = new PIXI.Container();
       const pickupLayer = new PIXI.Container();
       const enemyLayer = new PIXI.Container();
       const playerLayer = new PIXI.Container();
@@ -428,15 +462,26 @@ export function VoidforgeGame() {
       const highFxLayer = new PIXI.Container();
       const renderLayers = [
         terrainLayer,
+        lowFxLayer,
+        highFxLayer,
         pickupLayer,
         enemyLayer,
         playerLayer,
         friendlyProjectileLayer,
         hostileProjectileLayer,
-        highFxLayer,
       ];
       world.addChild(...renderLayers);
-      app.stage.addChild(starLayer, dustLayer, farDebrisLayer, world, flashLayer);
+      app.stage.addChild(hazeLayer, starLayer, dustLayer, farDebrisLayer, nearDebrisLayer, world, flashLayer);
+
+      const threatFrame = new PIXI.Graphics();
+      const bossIndicator = new PIXI.Graphics();
+      bossIndicator.poly([18, 0, -7, -11, -2, 0, -7, 11])
+        .fill({ color: 0xff765d, alpha: 0.88 })
+        .stroke({ color: 0xffd0a5, width: 1.2, alpha: 0.78 });
+      bossIndicator.circle(-3, 0, 16).stroke({ color: 0xc57bff, width: 1.5, alpha: 0.55 });
+      bossIndicator.blendMode = "add";
+      bossIndicator.visible = false;
+      flashLayer.addChild(threatFrame, bossIndicator);
 
       const postFx = createVoidforgePostFx({
         effectIntensity: effectIntensityRef.current,
@@ -450,7 +495,21 @@ export function VoidforgeGame() {
       app.stage.filterArea = app.screen;
 
       const rng = seededRandom(0x0f0a6e);
-      const stars: Array<{ view: Graphics; x: number; y: number; factor: number }> = [];
+      const haze: Array<{ view: Graphics; x: number; y: number; factor: number; phase: number; scale: number }> = [];
+      for (let index = 0; index < 6; index += 1) {
+        const wisp = new PIXI.Graphics();
+        const wide = 260 + rng() * 360;
+        const tall = 90 + rng() * 180;
+        const color = index % 3 === 0 ? 0x325a88 : index % 3 === 1 ? 0x643e83 : 0x7a3d35;
+        wisp.ellipse(0, 0, wide, tall).fill({ color, alpha: 0.028 + rng() * 0.025 });
+        wisp.ellipse(-wide * 0.12, tall * 0.06, wide * 0.58, tall * 0.42)
+          .fill({ color: index % 2 ? 0x8c59a8 : 0x397fa0, alpha: 0.018 });
+        wisp.rotation = rng() * Math.PI;
+        hazeLayer.addChild(wisp);
+        haze.push({ view: wisp, x: rng(), y: rng(), factor: 0.012 + rng() * 0.045, phase: rng() * Math.PI * 2, scale: 0.72 + rng() * 0.58 });
+      }
+
+      const stars: Array<{ view: Graphics; x: number; y: number; factor: number; phase: number; twinkle: number }> = [];
       for (let index = 0; index < 170; index += 1) {
         const star = new PIXI.Graphics();
         const size = rng() < 0.08 ? 1.8 + rng() * 1.6 : 0.45 + rng() * 0.9;
@@ -461,7 +520,14 @@ export function VoidforgeGame() {
           star.moveTo(0, -size * 3).lineTo(0, size * 3).stroke({ color, width: 0.55, alpha: 0.34 });
         }
         starLayer.addChild(star);
-        stars.push({ view: star, x: rng(), y: rng(), factor: 0.025 + rng() * 0.14 });
+        stars.push({
+          view: star,
+          x: rng(),
+          y: rng(),
+          factor: 0.025 + rng() * 0.14,
+          phase: rng() * Math.PI * 2,
+          twinkle: 0.35 + rng() * 0.85,
+        });
       }
       const dust: Array<{ view: Graphics; x: number; y: number; factor: number }> = [];
       for (let index = 0; index < 42; index += 1) {
@@ -490,10 +556,29 @@ export function VoidforgeGame() {
           spin: (rng() - 0.5) * 0.12,
         });
       }
+      const nearDebris: Array<{ view: Graphics; x: number; y: number; factor: number; spin: number; scale: number }> = [];
+      for (let index = 0; index < 8; index += 1) {
+        const fragment = new PIXI.Graphics();
+        const size = 10 + rng() * 18;
+        fragment.poly([-size, -size * 0.2, -size * 0.28, -size, size * 0.82, -size * 0.4, size, size * 0.48, -size * 0.16, size])
+          .fill({ color: 0x0a0d17, alpha: 0.32 })
+          .stroke({ color: index % 2 ? 0x735886 : 0x486a7d, width: 1, alpha: 0.18 });
+        nearDebrisLayer.addChild(fragment);
+        nearDebris.push({
+          view: fragment,
+          x: index % 2 ? 0.04 + rng() * 0.12 : 0.84 + rng() * 0.12,
+          y: rng(),
+          factor: 0.56 + rng() * 0.18,
+          spin: (rng() - 0.5) * 0.18,
+          scale: 0.72 + rng() * 1.1,
+        });
+      }
       background.alpha = highContrastRef.current ? 0.46 : 0.64;
+      hazeLayer.alpha = highContrastRef.current ? 0 : 1;
       starLayer.alpha = highContrastRef.current ? 1 : 0.82;
       dustLayer.alpha = highContrastRef.current ? 0.62 : 1;
       farDebrisLayer.alpha = highContrastRef.current ? 0.45 : 0.82;
+      nearDebrisLayer.alpha = highContrastRef.current ? 0 : 0.54;
 
       let player: Player;
       let engine: DreadEngine;
@@ -624,9 +709,44 @@ export function VoidforgeGame() {
         ports.circle(25, 6, 2.3).fill({ color: 0xffffff, alpha: 0.9 }).stroke({ color: 0x59e6ff, width: 1.2 });
         ports.circle(-25, 0, 4).fill({ color: 0x55e9ff, alpha: 0.76 });
         ports.blendMode = "add";
-        hull.addChild(portJet, starboardJet, hullShadow, ship, canopy, ports);
-        container.addChild(motionStreaks, glow, flare, hull);
-        return { container, flare, motionStreaks, hull, portJet, starboardJet };
+        const armorSheen = new PIXI.Graphics();
+        armorSheen.moveTo(31, -2).lineTo(7, -8).lineTo(-14, -21)
+          .stroke({ color: 0xe8ffff, width: 1.3, alpha: 0.46 });
+        armorSheen.moveTo(25, 4).lineTo(5, 9)
+          .stroke({ color: 0x83dcff, width: 0.9, alpha: 0.28 });
+        armorSheen.blendMode = "add";
+        const navLights = new PIXI.Graphics();
+        navLights.circle(-16, -23, 2.2).fill({ color: 0x82f2ff, alpha: 0.92 });
+        navLights.circle(-16, 23, 2.2).fill({ color: 0xffa458, alpha: 0.92 });
+        navLights.circle(-31, 0, 1.6).fill({ color: 0xffffff, alpha: 0.88 });
+        navLights.blendMode = "add";
+        const muzzleFlash = new PIXI.Graphics();
+        muzzleFlash.poly([51, 0, 33, -9, 37, 0, 33, 9])
+          .fill({ color: 0x7cecff, alpha: 0.36 });
+        muzzleFlash.poly([55, 0, 35, -3, 39, 0, 35, 3])
+          .fill({ color: 0xffffff, alpha: 0.92 });
+        muzzleFlash.blendMode = "add";
+        muzzleFlash.alpha = 0;
+        const shield = new PIXI.Container();
+        const shieldField = new PIXI.Graphics();
+        shieldField.poly([43, 0, 22, -37, -22, -37, -43, 0, -22, 37, 22, 37])
+          .fill({ color: 0x42dcff, alpha: 0.035 })
+          .stroke({ color: 0x86eeff, width: 1.4, alpha: 0.38 });
+        shieldField.arc(0, 0, 47, -0.9, 0.62).stroke({ color: 0xd9ffff, width: 2.1, alpha: 0.62 });
+        shieldField.arc(0, 0, 49, 1.72, 3.3).stroke({ color: 0x9c79ff, width: 1.6, alpha: 0.48 });
+        const shieldNode = new PIXI.Graphics();
+        shieldNode.circle(44, 0, 3.5).fill({ color: 0xffffff, alpha: 0.9 });
+        shieldNode.circle(44, 0, 8).fill({ color: 0x68eaff, alpha: 0.12 });
+        shieldNode.blendMode = "add";
+        shield.addChild(shieldField, shieldNode);
+        shield.visible = false;
+        shield.blendMode = "add";
+        hull.addChild(portJet, starboardJet, hullShadow, ship, canopy, ports, armorSheen, navLights);
+        container.addChild(motionStreaks, glow, flare, hull, muzzleFlash, shield);
+        return {
+          container, flare, motionStreaks, hull, portJet, starboardJet,
+          shield, muzzleFlash, armorSheen, navLights,
+        };
       };
 
       const makePlanetoidView = (radius: number, seed: number) => {
@@ -717,12 +837,29 @@ export function VoidforgeGame() {
         damageLayer.moveTo(radius * 0.36, radius * 0.03).lineTo(radius * 0.13, -radius * 0.14)
           .stroke({ color: 0xffa05f, width: 2.2, alpha: 0.68 });
         damageLayer.alpha = 0;
-        container.addChild(halo, shadow, body, facets, craterLayer, rim, oreGlow, cracks, damageLayer);
-        return { container, cracks, damageLayer, oreGlow };
+        const miningPulse = new PIXI.Graphics();
+        miningPulse.circle(0, 0, radius * 1.04)
+          .stroke({ color: 0xffb064, width: 2.2, alpha: 0.5 });
+        for (let index = 0; index < 4; index += 1) {
+          const angle = index * Math.PI * 0.5 + 0.18;
+          const inner = radius * 0.9;
+          const outer = radius * 1.14;
+          miningPulse.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner)
+            .lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer)
+            .stroke({ color: 0xffe0b0, width: 1.2, alpha: 0.62 });
+        }
+        miningPulse.blendMode = "add";
+        miningPulse.alpha = 0;
+        container.addChild(halo, shadow, body, facets, craterLayer, rim, oreGlow, cracks, damageLayer, miningPulse);
+        return { container, cracks, damageLayer, oreGlow, miningPulse };
       };
 
       const makeCrystalView = () => {
         const container = new PIXI.Container();
+        const trail = new PIXI.Graphics();
+        trail.poly([-8, -5, -34, 0, -8, 5]).fill({ color: 0x6beaff, alpha: 0.08 });
+        trail.moveTo(-7, 0).lineTo(-28, 0).stroke({ color: 0xd9ffff, width: 1, alpha: 0.26 });
+        trail.blendMode = "add";
         const halo = new PIXI.Graphics();
         halo.circle(0, 0, 29).fill({ color: 0x5df4ff, alpha: 0.1 });
         halo.circle(0, 0, 21).stroke({ color: 0x9b72ff, width: 1.2, alpha: 0.22 });
@@ -741,8 +878,8 @@ export function VoidforgeGame() {
         glint.moveTo(-22, 0).lineTo(22, 0).stroke({ color: 0xdfffff, width: 0.8, alpha: 0.32 });
         glint.moveTo(0, -22).lineTo(0, 22).stroke({ color: 0xdfffff, width: 0.8, alpha: 0.25 });
         glint.blendMode = "add";
-        container.addChild(halo, splinters, shard, glint);
-        return container;
+        container.addChild(trail, halo, splinters, shard, glint);
+        return { container, halo, glint, trail };
       };
 
       const makeFabricatorView = () => {
@@ -785,10 +922,18 @@ export function VoidforgeGame() {
         cargoGlow.circle(-7, 0, 17).stroke({ color: 0x9b70ff, width: 1.5, alpha: 0.58 });
         cargoGlow.blendMode = "add";
         cargoGlow.visible = false;
+        const scanner = new PIXI.Graphics();
+        scanner.arc(27, 0, 18, -0.72, 0.72).stroke({ color: 0xffc37b, width: 1.2, alpha: 0.42 });
+        scanner.arc(27, 0, 25, -0.48, 0.48).stroke({ color: 0xff8550, width: 0.9, alpha: 0.25 });
+        scanner.moveTo(28, 0).lineTo(48, 0).stroke({ color: 0xfff0cc, width: 0.8, alpha: 0.46 });
+        scanner.blendMode = "add";
         const beam = new PIXI.Graphics();
         hull.addChild(hullShadow, ship, cargoGlow, claws);
-        container.addChild(glow, engineFlare, beam, hull);
-        return { container, beam, hull, claws, cargoGlow, engineFlare };
+        container.addChild(glow, engineFlare, scanner, beam, hull);
+        return {
+          container, beam, hull, claws, cargoGlow, engineFlare,
+          upperClaw, lowerClaw, scanner,
+        };
       };
 
       const makeSentinelView = () => {
@@ -832,13 +977,53 @@ export function VoidforgeGame() {
         damageLayer.moveTo(-4, -17).lineTo(3, -7).lineTo(13, -13).stroke({ color: 0x08070f, width: 4.2, alpha: 0.9 });
         damageLayer.circle(-12, 9, 5.5).fill({ color: 0x05040a, alpha: 0.82 });
         damageLayer.visible = false;
-        hull.addChild(hullShadow, ship, weaponCore, shield, damageLayer);
+        const chargeMarks = new PIXI.Container();
+        for (let index = 0; index < 3; index += 1) {
+          const mark = new PIXI.Graphics();
+          const x = 31 + index * 7;
+          mark.poly([x, 0, x - 7, -5, x - 4, 0, x - 7, 5])
+            .stroke({ color: index === 2 ? 0xffffff : 0xff8aae, width: 1.25, alpha: 0.72 });
+          chargeMarks.addChild(mark);
+        }
+        chargeMarks.blendMode = "add";
+        chargeMarks.alpha = 0;
+        hull.addChild(hullShadow, ship, weaponCore, shield, damageLayer, chargeMarks);
         container.addChild(glow, engineFlare, hull);
-        return { container, hull, damageLayer, shield, weaponCore, engineFlare };
+        return { container, hull, damageLayer, shield, weaponCore, engineFlare, chargeMarks };
+      };
+
+      const engineSlotTransform = (index: number) => {
+        const sectorCount = Math.ceil(RULES.enginePieces / 3);
+        const sector = Math.floor(index / 3);
+        const slot = index % 3;
+        const base = (sector / sectorCount) * Math.PI * 2 + 0.17;
+        const angleOffsets = [-0.155, 0.018, 0.172];
+        const radii = [145, 97, 121];
+        const asymmetry = sector === 2 && slot === 0 ? 11 : sector === 5 && slot === 2 ? -7 : 0;
+        return { angle: base + angleOffsets[slot], radius: radii[slot] + asymmetry };
       };
 
       const makeEngineView = () => {
         const root = new PIXI.Container();
+        const forgeAura = new PIXI.Graphics();
+        forgeAura.circle(0, 0, 286).fill({ color: 0x8b4cff, alpha: 0.014 });
+        forgeAura.circle(0, 0, 248).stroke({ color: 0xff754d, width: 2.2, alpha: 0.08 });
+        forgeAura.circle(0, 0, 224).stroke({ color: 0xa36dff, width: 1.2, alpha: 0.08 });
+        forgeAura.blendMode = "add";
+        const threatHalo = new PIXI.Graphics();
+        for (let index = 0; index < 12; index += 1) {
+          const start = (index / 12) * Math.PI * 2 + 0.07;
+          threatHalo.arc(0, 0, index % 3 === 0 ? 214 : 204, start, start + (index % 2 ? 0.18 : 0.28))
+            .stroke({ color: index % 3 === 0 ? 0xff7652 : 0xaa74ff, width: index % 3 === 0 ? 3 : 1.5, alpha: 0.24 });
+          if (index % 3 === 0) {
+            threatHalo.moveTo(Math.cos(start) * 198, Math.sin(start) * 198)
+              .lineTo(Math.cos(start) * 228, Math.sin(start) * 228)
+              .stroke({ color: 0xffb277, width: 1.3, alpha: 0.3 });
+          }
+        }
+        threatHalo.blendMode = "add";
+        const targetingBeam = new PIXI.Graphics();
+        targetingBeam.blendMode = "add";
         const ambient = new PIXI.Graphics();
         ambient.circle(0, 0, 228).fill({ color: 0x8f35ff, alpha: 0.04 });
         ambient.circle(0, 0, 178).fill({ color: 0xff5b48, alpha: 0.025 });
@@ -880,12 +1065,13 @@ export function VoidforgeGame() {
           ringBack.arc(0, 0, 88, start + 0.24, start + 0.65).stroke({ color: 0xff7248, width: 2.2, alpha: 0.28 });
         }
         ringBack.circle(0, 0, 117).stroke({ color: 0x090b18, width: 10, alpha: 0.64 });
-        root.addChild(ambient, chassis, energyCage, ringBack, outerRing, innerRing);
+        root.addChild(forgeAura, threatHalo, ambient, targetingBeam, chassis, energyCage, ringBack, outerRing, innerRing);
 
         for (let index = 0; index < RULES.enginePieces; index += 1) {
-          const angle = (index / RULES.enginePieces) * Math.PI * 2;
+          const transform = engineSlotTransform(index);
+          const angle = transform.angle;
           const moduleType = index % 3;
-          const distanceFromCore = moduleType === 0 ? 142 : moduleType === 1 ? 96 : 119;
+          const distanceFromCore = transform.radius;
           const piece = new PIXI.Container();
           const glow = new PIXI.Graphics();
           glow.ellipse(0, 0, moduleType === 0 ? 34 : 27, moduleType === 1 ? 30 : 22)
@@ -960,6 +1146,7 @@ export function VoidforgeGame() {
           .fill({ color: 0x251b3e, alpha: 0.84 })
           .stroke({ color: 0x9f73ff, width: 2, alpha: 0.6 });
         const aperture = new PIXI.Container();
+        const apertureBlades: Graphics[] = [];
         for (let index = 0; index < 3; index += 1) {
           const blade = new PIXI.Graphics();
           blade.poly([4, -7, 34, -24, 29, -6, 13, 7])
@@ -967,6 +1154,7 @@ export function VoidforgeGame() {
             .stroke({ color: index % 2 ? 0xff8656 : 0xb68cff, width: 1.7, alpha: 0.84 });
           blade.rotation = (index / 3) * Math.PI * 2;
           aperture.addChild(blade);
+          apertureBlades.push(blade);
         }
         const reactor = new PIXI.Graphics();
         reactor.circle(0, 0, 23).fill({ color: 0x170d2b, alpha: 0.96 }).stroke({ color: 0xff8556, width: 2.2, alpha: 0.8 });
@@ -975,17 +1163,23 @@ export function VoidforgeGame() {
         reactor.blendMode = "add";
         aperture.addChild(reactor);
         root.addChild(coreHalo, core, aperture);
-        return { root, parts, outerRing, innerRing, core, damageLayers, energyCage, aperture, coreHalo };
+        return {
+          root, parts, outerRing, innerRing, core, damageLayers, energyCage,
+          aperture, coreHalo, threatHalo, targetingBeam, forgeAura, apertureBlades,
+        };
       };
 
       const createPlayer = (): Player => {
-        const { container, flare, motionStreaks, hull, portJet, starboardJet } = makePlayerView();
+        const {
+          container, flare, motionStreaks, hull, portJet, starboardJet,
+          shield, muzzleFlash, armorSheen, navLights,
+        } = makePlayerView();
         container.position.set(4200, 3050);
         playerLayer.addChild(container);
         return {
           id: nextId(), x: 4200, y: 3050, vx: 0, vy: 0, radius: 24,
           angle: 0, invulnerable: 3.5, view: container, engineFlare: flare, motionStreaks,
-          hull, portJet, starboardJet,
+          hull, portJet, starboardJet, shield, muzzleFlash, armorSheen, navLights, recoil: 0,
         };
       };
 
@@ -999,61 +1193,75 @@ export function VoidforgeGame() {
           outerRing: graphics.outerRing, core: graphics.core, active: false,
           health: RULES.engineHits, destroyed: false, damageLayers: graphics.damageLayers,
           energyCage: graphics.energyCage, aperture: graphics.aperture, coreHalo: graphics.coreHalo,
+          threatHalo: graphics.threatHalo, targetingBeam: graphics.targetingBeam,
+          forgeAura: graphics.forgeAura, apertureBlades: graphics.apertureBlades,
         };
       };
 
       const spawnPlanetoid = (x: number, y: number, radius = 62 + rng() * 54) => {
-        const { container, cracks, damageLayer, oreGlow } = makePlanetoidView(radius, Math.floor(rng() * 0x7fffffff));
+        const { container, cracks, damageLayer, oreGlow, miningPulse } = makePlanetoidView(radius, Math.floor(rng() * 0x7fffffff));
         container.position.set(x, y);
         terrainLayer.addChild(container);
         const planetoid: Planetoid = {
           id: nextId(), x, y, vx: (rng() - 0.5) * 9, vy: (rng() - 0.5) * 9,
           radius, view: container, integrity: 8, maxIntegrity: 8,
           shards: 3 + Math.floor(rng() * 4), miningProgress: 0, lastHitAt: -1000,
-          cracks, damageLayer, oreGlow,
+          cracks, damageLayer, oreGlow, miningPulse, miningHeat: 0,
+          spin: (rng() < 0.5 ? -1 : 1) * (0.012 + rng() * 0.036),
         };
         planetoids.push(planetoid);
         return planetoid;
       };
 
       const spawnCrystal = (x: number, y: number, angle = rng() * Math.PI * 2) => {
-        const view = makeCrystalView();
+        const { container: view, halo, glint, trail } = makeCrystalView();
         view.position.set(x, y);
         pickupLayer.addChild(view);
         crystals.push({
           id: nextId(), x, y, vx: Math.cos(angle) * (45 + rng() * 65),
           vy: Math.sin(angle) * (45 + rng() * 65), radius: 13, view, age: 0,
+          halo, glint, trail, phase: rng() * Math.PI * 2,
         });
       };
 
       const spawnFabricator = (x: number, y: number) => {
-        const { container, beam, hull, claws, cargoGlow, engineFlare } = makeFabricatorView();
+        const {
+          container, beam, hull, claws, cargoGlow, engineFlare,
+          upperClaw, lowerClaw, scanner,
+        } = makeFabricatorView();
         container.position.set(x, y);
         enemyLayer.addChild(container);
         fabricators.push({
           id: nextId(), x, y, vx: 0, vy: 0, radius: 25, view: container,
           carrying: false, miningTimer: 1.4 + rng() * 1.8, beam, hull, claws,
           cargoGlow, engineFlare, phase: rng() * Math.PI * 2,
+          upperClaw, lowerClaw, scanner,
         });
       };
 
       const spawnSentinel = (x: number, y: number) => {
-        const { container: view, hull, damageLayer, shield, weaponCore, engineFlare } = makeSentinelView();
+        const {
+          container: view, hull, damageLayer, shield, weaponCore, engineFlare, chargeMarks,
+        } = makeSentinelView();
         view.position.set(x, y);
         enemyLayer.addChild(view);
         sentinels.push({
           id: nextId(), x, y, vx: 0, vy: 0, radius: 27, view,
           fireTimer: 0.5 + rng() * 1.5, orbit: rng() < 0.5 ? -1 : 1, health: 2,
           hull, damageLayer, shield, weaponCore, engineFlare, phase: rng() * Math.PI * 2,
+          chargeMarks, shotPulse: 0,
         });
       };
 
       const makeProjectileView = (kind: Projectile["kind"]) => {
         const container = new PIXI.Container();
+        const trail = new PIXI.Graphics();
         const glow = new PIXI.Graphics();
         const shape = new PIXI.Graphics();
         const accent = new PIXI.Container();
         if (kind === "laser") {
+          trail.poly([-22, -3, -62, 0, -22, 3]).fill({ color: 0x5ce9ff, alpha: 0.13 });
+          trail.moveTo(-19, 0).lineTo(-72, 0).stroke({ color: 0xc9fbff, width: 1.1, alpha: 0.3 });
           glow.moveTo(-31, 0).lineTo(25, 0).stroke({ color: 0x47eaff, width: 11, alpha: 0.11 });
           shape.moveTo(-25, 0).lineTo(21, 0).stroke({ color: 0x03131c, width: 6.5, alpha: 0.9 });
           shape.moveTo(-25, 0).lineTo(21, 0).stroke({ color: 0xc7fbff, width: 2.6, alpha: 0.98 });
@@ -1061,6 +1269,11 @@ export function VoidforgeGame() {
           shape.moveTo(-34, -2).lineTo(-18, -2).stroke({ color: 0x59dfff, width: 1.2, alpha: 0.58 });
           shape.moveTo(-29, 3).lineTo(-12, 3).stroke({ color: 0x8f72ff, width: 1, alpha: 0.42 });
         } else if (kind === "bolt") {
+          for (let index = 0; index < 3; index += 1) {
+            const x = -13 - index * 10;
+            trail.poly([x, 0, x - 7, -4, x - 4, 0, x - 7, 4])
+              .stroke({ color: index === 0 ? 0xff8ab0 : 0xa667ff, width: 1.25, alpha: 0.34 - index * 0.07 });
+          }
           glow.ellipse(-2, 0, 19, 14).fill({ color: 0xff4e98, alpha: 0.16 });
           const ring = new PIXI.Graphics();
           ring.circle(0, 0, 10).stroke({ color: 0xc368ff, width: 1.6, alpha: 0.6 });
@@ -1069,6 +1282,11 @@ export function VoidforgeGame() {
           shape.poly([7, 0, -9, -3, -3, 0, -9, 3]).fill({ color: 0x6f3dff, alpha: 0.82 });
           shape.circle(3, 0, 2.6).fill({ color: 0xffffff, alpha: 0.92 });
         } else {
+          trail.poly([-15, -6, -58, -12, -28, 0, -58, 12, -15, 6])
+            .fill({ color: 0x9e64ff, alpha: 0.1 });
+          trail.moveTo(-16, -4).lineTo(-52, -8).stroke({ color: 0xc89aff, width: 2, alpha: 0.38 });
+          trail.moveTo(-16, 4).lineTo(-52, 8).stroke({ color: 0xffa05d, width: 2, alpha: 0.38 });
+          trail.moveTo(-18, 0).lineTo(-67, 0).stroke({ color: 0xffffff, width: 0.85, alpha: 0.28 });
           glow.circle(0, 0, 34).fill({ color: 0xff7d3d, alpha: 0.14 });
           const ringA = new PIXI.Graphics();
           ringA.ellipse(0, 0, 23, 16).stroke({ color: 0xa45dff, width: 2.5, alpha: 0.72 });
@@ -1083,15 +1301,16 @@ export function VoidforgeGame() {
           shape.poly([-10, 6, -21, 13, -16, 2]).fill({ color: 0xff8550, alpha: 0.86 });
           shape.circle(3, 0, 3.2).fill({ color: 0xffffff, alpha: 0.92 });
         }
+        trail.blendMode = "add";
         glow.blendMode = "add";
-        container.addChild(glow, accent, shape);
-        return { container, accent };
+        container.addChild(trail, glow, accent, shape);
+        return { container, accent, trail };
       };
 
       const spawnProjectile = (
         kind: Projectile["kind"], x: number, y: number, vx: number, vy: number,
       ) => {
-        const { container: view, accent } = makeProjectileView(kind);
+        const { container: view, accent, trail } = makeProjectileView(kind);
         view.position.set(x, y);
         view.rotation = Math.atan2(vy, vx);
         (kind === "bolt" ? hostileProjectileLayer : friendlyProjectileLayer).addChild(view);
@@ -1099,7 +1318,7 @@ export function VoidforgeGame() {
           id: nextId(), x, y, vx, vy, radius: kind === "nova" ? 13 : kind === "bolt" ? 6 : 5,
           view, owner: kind === "bolt" ? "enemy" : "player", kind, age: 0,
           lifetime: kind === "nova" ? 8 : kind === "bolt" ? 4 : 1.35,
-          accent,
+          accent, trail,
         });
       };
 
@@ -1180,7 +1399,7 @@ export function VoidforgeGame() {
         rays.blendMode = "add";
         view.addChild(glow, rays, rings);
         view.position.set(x, y);
-        highFxLayer.addChild(view);
+        lowFxLayer.addChild(view);
         impactFx.push({
           id: nextId(), x, y, vx: 0, vy: 0, radius: size, view,
           age: 0, lifetime: 0.5 + force * 0.22, startScale: 0.35,
@@ -1205,9 +1424,9 @@ export function VoidforgeGame() {
 
       const syncEngineParts = () => {
         engine.parts.forEach((part, index) => {
-          const angle = (index / RULES.enginePieces) * Math.PI * 2;
-          const moduleType = index % 3;
-          const baseDistance = moduleType === 0 ? 142 : moduleType === 1 ? 96 : 119;
+          const transform = engineSlotTransform(index);
+          const angle = transform.angle;
+          const baseDistance = transform.radius;
           if (index < pieces) {
             part.alpha = 1;
             part.scale.set(1);
@@ -1225,9 +1444,9 @@ export function VoidforgeGame() {
           for (let index = 0; index < disabled; index += 1) {
             const partIndex = (index * 3 + 2) % engine.parts.length;
             const part = engine.parts[partIndex];
-            const angle = (partIndex / RULES.enginePieces) * Math.PI * 2;
-            const moduleType = partIndex % 3;
-            const baseDistance = moduleType === 0 ? 142 : moduleType === 1 ? 96 : 119;
+            const transform = engineSlotTransform(partIndex);
+            const angle = transform.angle;
+            const baseDistance = transform.radius;
             part.alpha = 0.12;
             part.scale.set(0.82);
             part.position.set(Math.cos(angle) * (baseDistance + 12), Math.sin(angle) * (baseDistance + 12));
@@ -1241,6 +1460,9 @@ export function VoidforgeGame() {
         const assembly = pieces / RULES.enginePieces;
         engine.energyCage.alpha = engine.destroyed ? 0.12 : engine.active ? 0.9 - damage * 0.32 : 0.12 + assembly * 0.54;
         engine.coreHalo.alpha = engine.destroyed ? 0.08 : engine.active ? 0.78 + (1 - damage) * 0.22 : 0.16 + assembly * 0.56;
+        engine.threatHalo.alpha = engine.destroyed ? 0.04 : engine.active ? 0.72 : 0.08 + assembly * 0.48;
+        engine.forgeAura.alpha = engine.destroyed ? 0.08 : 0.22 + assembly * 0.78;
+        engine.targetingBeam.visible = engine.active && !engine.destroyed;
         engine.aperture.scale.set(engine.active ? 1 : 0.72 + assembly * 0.28);
       };
 
@@ -1395,19 +1617,39 @@ export function VoidforgeGame() {
           const dx = entity.x - player.x;
           const dy = entity.y - player.y;
           if (Math.abs(dx) > range || Math.abs(dy) > range) return;
+          const cos = Math.cos(-player.angle);
+          const sin = Math.sin(-player.angle);
+          const relativeX = dx * cos - dy * sin;
+          const relativeY = dx * sin + dy * cos;
           contacts.push({
             id: entity.id,
             kind,
-            x: clamp(50 + (dx / range) * 48, 3, 97),
-            y: clamp(50 + (dy / range) * 48, 3, 97),
+            x: clamp(50 + (relativeX / range) * 48, 3, 97),
+            y: clamp(50 + (relativeY / range) * 48, 3, 97),
           });
         };
         fabricators.slice(0, 9).forEach((entity) => addContact(entity, "worker"));
         sentinels.slice(0, 8).forEach((entity) => addContact(entity, "warrior"));
         if (!engine.destroyed) addContact(engine, "boss");
+        const nearbyThreats = sentinels.reduce((count, sentinel) => (
+          !sentinel.dead && distance(player.x, player.y, sentinel.x, sentinel.y) < 1250 ? count + 1 : count
+        ), 0);
+        const assembly = pieces / RULES.enginePieces;
+        const threatLevel = engine.active
+          ? clamp(0.62 + nearbyThreats * 0.035 + (1 - engine.health / RULES.engineHits) * 0.18, 0, 1)
+          : clamp(assembly * 0.68 + nearbyThreats * 0.045, 0, 0.82);
+        const tacticalStatus = engine.destroyed
+          ? "FIELD SECURE"
+          : engine.active
+            ? engine.health <= 4 ? "CORE BREACH" : "DREAD LOCK"
+            : pieces >= 15
+              ? "ASSEMBLY CRITICAL"
+              : fabricators.some((fabricator) => !fabricator.dead && fabricator.carrying)
+                ? "FABRICATOR TRANSIT"
+                : nearbyThreats >= 3 ? "WARRIOR SWARM" : "MINE FLUX";
         setHud({
           score, lives, charges, zone, pieces, engineHealth: engine.health,
-          engineActive: engine.active, contacts,
+          engineActive: engine.active, contacts, threatLevel, tacticalStatus,
         });
       };
 
@@ -1418,6 +1660,9 @@ export function VoidforgeGame() {
         const muzzleX = player.x + Math.cos(player.angle) * 40;
         const muzzleY = player.y + Math.sin(player.angle) * 40;
         spawnProjectile("laser", muzzleX, muzzleY, Math.cos(player.angle) * speed + player.vx * 0.3, Math.sin(player.angle) * speed + player.vy * 0.3);
+        player.recoil = 1;
+        player.muzzleFlash.alpha = localReducedFlashing ? 0.46 : 1;
+        player.muzzleFlash.scale.set(0.76, 0.86);
         audio.laser(panFor(player.x));
         spawnBurst(muzzleX, muzzleY, 0x7ceaff, 3, 0.25);
       };
@@ -1469,7 +1714,10 @@ export function VoidforgeGame() {
           if (showcaseRock) {
             showcaseRock.integrity = 3;
             showcaseRock.shards = Math.max(1, showcaseRock.shards - 2);
+            showcaseRock.miningHeat = 0.88;
             syncPlanetoidDamage(showcaseRock);
+            showcaseRock.miningPulse.alpha = 0.54 * localEffectIntensity;
+            showcaseRock.miningPulse.scale.set(0.9);
             player.angle = Math.atan2(showcaseRock.y - player.y, showcaseRock.x - player.x);
             player.view.rotation = player.angle;
             const beamLength = distance(player.x, player.y, showcaseRock.x, showcaseRock.y);
@@ -1693,11 +1941,23 @@ export function VoidforgeGame() {
           1,
         );
         player.hull.scale.y = 1 - Math.abs(slip) * 0.09;
+        player.recoil = Math.max(0, player.recoil - dt * 8.5);
+        player.hull.x = -player.recoil * 3.4;
+        player.muzzleFlash.alpha = Math.max(0, player.muzzleFlash.alpha - dt * (localReducedFlashing ? 9 : 13));
+        player.muzzleFlash.scale.set(0.76 + (1 - player.recoil) * 0.42, 0.86 + player.recoil * 0.24);
         player.portJet.alpha = Math.max(0, slip) * 0.9;
         player.starboardJet.alpha = Math.max(0, -slip) * 0.9;
         player.engineFlare.scale.x = 0.76 + band * 0.72 + Math.sin(motionClock * 19) * 0.055;
         player.engineFlare.alpha = 0.36 + band * 0.64;
-        player.view.alpha = player.invulnerable > 0 && Math.floor(player.invulnerable * 11) % 2 === 0 ? 0.3 : 1;
+        player.shield.visible = player.invulnerable > 0;
+        player.shield.rotation = localReducedFx ? 0.08 : motionClock * 0.72;
+        player.shield.alpha = player.invulnerable > 0
+          ? localReducedFlashing ? 0.58 : 0.56 + Math.sin(motionClock * 5.2) * 0.12
+          : 0;
+        player.shield.scale.set(0.96 + Math.min(player.invulnerable, 1) * 0.035);
+        player.armorSheen.alpha = 0.32 + band * 0.34;
+        player.navLights.alpha = localReducedFlashing ? 0.72 : 0.62 + Math.sin(motionClock * 4.4) * 0.26;
+        player.view.alpha = 1;
         audio.setEngineThrust(band);
 
         if (keys.has("Space") || padFire) launchLaser();
@@ -1709,7 +1969,14 @@ export function VoidforgeGame() {
           planetoid.x += planetoid.vx * dt;
           planetoid.y += planetoid.vy * dt;
           planetoid.view.position.set(planetoid.x, planetoid.y);
-          planetoid.view.rotation += dt * 0.025;
+          planetoid.view.rotation += dt * planetoid.spin;
+          planetoid.miningHeat = Math.max(0, planetoid.miningHeat - dt * 1.9);
+          planetoid.miningPulse.alpha = planetoid.miningHeat
+            * (localReducedFlashing ? 0.42 : 0.46 + Math.sin(motionClock * 11) * 0.18)
+            * localEffectIntensity;
+          planetoid.miningPulse.rotation = localReducedFx ? 0 : -planetoid.view.rotation + motionClock * 0.35;
+          planetoid.miningPulse.scale.set(0.88 + (1 - planetoid.miningHeat) * 0.18);
+          planetoid.oreGlow.scale.set(0.96 + planetoid.miningHeat * 0.12);
         }
 
         for (const crystal of crystals) {
@@ -1719,13 +1986,22 @@ export function VoidforgeGame() {
           crystal.x += crystal.vx * dt;
           crystal.y += crystal.vy * dt;
           crystal.view.position.set(crystal.x, crystal.y);
-          crystal.view.rotation += dt * 2.2;
-          crystal.view.scale.set(1 + Math.sin(crystal.age * 5) * 0.08);
+          crystal.view.rotation += dt * (1.05 + (crystal.phase % 0.8));
+          crystal.view.scale.set(1 + Math.sin(crystal.age * 4.6 + crystal.phase) * 0.065);
+          crystal.halo.rotation = -crystal.view.rotation * 0.78;
+          crystal.halo.scale.set(0.94 + Math.sin(crystal.age * 3.5 + crystal.phase) * 0.08);
+          crystal.glint.rotation = -crystal.view.rotation + (localReducedFx ? 0 : crystal.age * 0.42);
+          crystal.glint.alpha = localReducedFlashing ? 0.46 : 0.38 + Math.sin(crystal.age * 4.2 + crystal.phase) * 0.22;
+          const crystalSpeed = Math.hypot(crystal.vx, crystal.vy);
+          crystal.trail.rotation = Math.atan2(crystal.vy, crystal.vx) - crystal.view.rotation;
+          crystal.trail.alpha = clamp(crystalSpeed / 110, 0.08, 0.62) * localEffectIntensity;
+          crystal.trail.scale.x = 0.68 + clamp(crystalSpeed / 120, 0, 1) * 0.72;
           if (circlesOverlap(player, crystal)) {
             crystal.dead = true;
             charges = Math.min(RULES.maxCharges, charges + 1);
             score += 200;
             audio.crystal(panFor(crystal.x));
+            spawnImpactFx(crystal.x, crystal.y, 0x69f3ff, 34, 0.32);
             spawnBurst(crystal.x, crystal.y, 0x69f3ff, 14, 0.55);
           }
         }
@@ -1778,6 +2054,7 @@ export function VoidforgeGame() {
                     fabricator.miningTimer = 2.5 + rng() * 1.6;
                     rock.shards = Math.max(0, rock.shards - 1);
                     rock.integrity = Math.max(0, rock.integrity - 7);
+                    rock.miningHeat = 1;
                     syncPlanetoidDamage(rock);
                     fabricator.carrying = true;
                     spawnBurst(rock.x, rock.y, 0xff9a4b, 8, 0.36);
@@ -1802,7 +2079,15 @@ export function VoidforgeGame() {
           fabricator.view.scale.set(fabricator.carrying ? 1.18 : 1);
           fabricator.hull.rotation = Math.sin(motionClock * 3.1 + fabricator.phase) * 0.025;
           fabricator.hull.y = Math.sin(motionClock * 4.3 + fabricator.phase) * 0.65;
-          fabricator.claws.rotation = miningActive ? Math.sin(motionClock * 8.5 + fabricator.phase) * 0.11 : 0;
+          const clawCycle = miningActive
+            ? 0.11 + Math.sin(motionClock * 8.5 + fabricator.phase) * 0.1
+            : fabricator.carrying ? -0.16 : 0;
+          fabricator.upperClaw.rotation = clawCycle;
+          fabricator.lowerClaw.rotation = -clawCycle;
+          fabricator.claws.x = miningActive ? 3.5 : 0;
+          fabricator.scanner.visible = !fabricator.carrying;
+          fabricator.scanner.rotation = localReducedFx ? 0 : Math.sin(motionClock * 1.9 + fabricator.phase) * 0.22;
+          fabricator.scanner.alpha = miningActive ? 0.92 : 0.32;
           fabricator.cargoGlow.visible = fabricator.carrying;
           fabricator.cargoGlow.alpha = fabricator.carrying ? 0.72 + Math.sin(motionClock * 5 + fabricator.phase) * 0.2 : 0;
           fabricator.engineFlare.scale.x = 0.78 + clamp(Math.hypot(fabricator.vx, fabricator.vy) / 190, 0, 1) * 0.46;
@@ -1824,12 +2109,18 @@ export function VoidforgeGame() {
           sentinel.y += sentinel.vy * dt;
           sentinel.view.position.set(sentinel.x, sentinel.y);
           sentinel.view.rotation = Math.atan2(dy, dx);
+          sentinel.shotPulse = Math.max(0, sentinel.shotPulse - dt * 6.5);
           sentinel.hull.rotation = Math.sin(motionClock * 3.8 + sentinel.phase) * 0.022;
+          sentinel.hull.x = -sentinel.shotPulse * 4.5;
           sentinel.hull.scale.y = 1 + Math.sin(motionClock * 5.1 + sentinel.phase) * 0.018;
           sentinel.shield.visible = sentinel.health > 1;
           sentinel.shield.rotation = motionClock * 0.72 * sentinel.orbit;
-          sentinel.weaponCore.scale.set(0.92 + Math.sin(motionClock * 6.4 + sentinel.phase) * 0.08);
+          const charge = d < 1450 ? clamp((0.42 - sentinel.fireTimer) / 0.42, 0, 1) : 0;
+          sentinel.chargeMarks.alpha = charge * (localReducedFlashing ? 0.58 : 0.72 + Math.sin(motionClock * 12) * 0.2);
+          sentinel.chargeMarks.scale.set(0.82 + charge * 0.22);
+          sentinel.weaponCore.scale.set(0.92 + Math.sin(motionClock * 6.4 + sentinel.phase) * 0.08 + charge * 0.24);
           sentinel.weaponCore.alpha = 0.72 + Math.sin(motionClock * 5.7 + sentinel.phase) * 0.2;
+          sentinel.shield.scale.set(1 - charge * 0.07);
           sentinel.engineFlare.scale.x = 0.74 + clamp(Math.hypot(sentinel.vx, sentinel.vy) / 300, 0, 1) * 0.44;
           sentinel.engineFlare.alpha = 0.48 + Math.sin(motionClock * 8.2 + sentinel.phase) * 0.1;
           sentinel.fireTimer -= dt;
@@ -1837,6 +2128,7 @@ export function VoidforgeGame() {
             sentinel.fireTimer = (engine.active ? 0.82 : 1.25) + rng() * 0.7;
             const aim = Math.atan2(dy, dx) + (rng() - 0.5) * 0.11;
             spawnProjectile("bolt", sentinel.x, sentinel.y, Math.cos(aim) * 385, Math.sin(aim) * 385);
+            sentinel.shotPulse = 1;
           }
         }
 
@@ -1851,9 +2143,36 @@ export function VoidforgeGame() {
         engine.innerRing.rotation -= dt * (engine.active ? 1.08 : 0.13);
         engine.energyCage.rotation += dt * (engine.active ? 0.23 : 0.035);
         engine.aperture.rotation -= dt * (engine.active ? 0.58 : 0.08);
+        engine.threatHalo.rotation += dt * (engine.active ? -0.18 : -0.035);
+        const apertureDeploy = engine.destroyed ? 0.18 : engine.active ? 1 : pieces / RULES.enginePieces;
+        engine.apertureBlades.forEach((blade, index) => {
+          const angle = (index / engine.apertureBlades.length) * Math.PI * 2;
+          const offset = apertureDeploy * 9.5;
+          blade.position.set(Math.cos(angle) * offset, Math.sin(angle) * offset);
+        });
         const corePulse = engine.active ? 1 + Math.sin(motionClock * 7.6) * 0.065 : 0.88 + (pieces / RULES.enginePieces) * 0.12;
         engine.core.scale.set(corePulse);
         engine.coreHalo.scale.set(0.94 + Math.sin(motionClock * 4.2) * (engine.active ? 0.08 : 0.025));
+        engine.forgeAura.scale.set(0.92 + (pieces / RULES.enginePieces) * 0.08 + (engine.active ? Math.sin(motionClock * 1.6) * 0.025 : 0));
+        engine.targetingBeam.clear();
+        if (engine.active && !engine.destroyed) {
+          const beamX = player.x - engine.x;
+          const beamY = player.y - engine.y;
+          const beamLength = Math.max(1, Math.hypot(beamX, beamY));
+          const ux = beamX / beamLength;
+          const uy = beamY / beamLength;
+          const beamAlpha = localReducedFx ? 0.08 : 0.1 + Math.sin(motionClock * 2.8) * 0.025;
+          for (let segment = 0; segment < 10; segment += 1) {
+            const start = 88 + segment * Math.max(22, (beamLength - 140) / 10);
+            const end = Math.min(beamLength - 36, start + Math.max(10, (beamLength - 140) / 20));
+            if (end <= start) continue;
+            engine.targetingBeam.moveTo(ux * start, uy * start)
+              .lineTo(ux * end, uy * end)
+              .stroke({ color: segment % 2 ? 0xc276ff : 0xff7a58, width: segment % 3 === 0 ? 1.4 : 0.8, alpha: beamAlpha });
+          }
+          engine.targetingBeam.circle(beamX, beamY, 22)
+            .stroke({ color: 0xff9a73, width: 1.2, alpha: beamAlpha * 1.5 });
+        }
         if (engine.active && !engine.destroyed && rng() < dt * 7 * localEffectIntensity) {
           const angle = rng() * Math.PI * 2;
           const radius = 72 + rng() * 92;
@@ -1872,12 +2191,25 @@ export function VoidforgeGame() {
           projectile.y += projectile.vy * dt;
           projectile.view.position.set(projectile.x, projectile.y);
           projectile.view.rotation = Math.atan2(projectile.vy, projectile.vx);
+          const projectileLife = 1 - projectile.age / projectile.lifetime;
+          projectile.trail.alpha = clamp(projectileLife * (projectile.kind === "nova" ? 0.82 : 0.62), 0, 0.82)
+            * localEffectIntensity;
+          projectile.trail.scale.x = 0.82 + Math.sin(projectile.age * (projectile.kind === "bolt" ? 15 : 9)) * 0.08;
           if (projectile.accent) {
             projectile.accent.rotation = projectile.age * (projectile.kind === "nova" ? 2.4 : 3.8);
             projectile.accent.scale.set(0.94 + Math.sin(projectile.age * 11) * 0.06);
             if (projectile.kind === "nova" && projectile.accent.children[1]) {
               projectile.accent.children[1].rotation = -projectile.age * 5.2;
             }
+          }
+          if (projectile.kind === "nova" && rng() < dt * 14 * localEffectIntensity) {
+            spawnBurst(
+              projectile.x - Math.cos(projectile.view.rotation) * 22,
+              projectile.y - Math.sin(projectile.view.rotation) * 22,
+              projectile.age % 0.26 < 0.13 ? 0xa56dff : 0xff9458,
+              1,
+              0.14,
+            );
           }
 
           if (projectile.kind === "bolt") {
@@ -1897,6 +2229,7 @@ export function VoidforgeGame() {
               planetoid.shards = result.planetoid.shards;
               planetoid.miningProgress = result.planetoid.miningProgress;
               planetoid.lastHitAt = result.planetoid.lastHitAt;
+              planetoid.miningHeat = 1;
               syncPlanetoidDamage(planetoid);
               spawnBurst(projectile.x, projectile.y, 0xffa251, 6, 0.3);
               if (result.emitted) spawnCrystal(projectile.x, projectile.y);
@@ -2054,6 +2387,9 @@ export function VoidforgeGame() {
           const bossInfluence = localReducedFx ? Math.min(activeInfluence + buildInfluence, 0.24) : activeInfluence + buildInfluence;
           focusX = lerp(focusX, engine.x, bossInfluence);
           focusY = lerp(focusY, engine.y, bossInfluence);
+          const revealInfluence = localReducedFx ? 0 : clamp(activationPulse / 2.2, 0, 1) * 0.34;
+          focusX = lerp(focusX, engine.x, revealInfluence);
+          focusY = lerp(focusY, engine.y, revealInfluence);
           const follow = dt > 0 ? 1 - Math.exp(-dt * 3.8) : 1;
           cameraX = lerp(cameraX, focusX, follow);
           cameraY = lerp(cameraY, focusY, follow);
@@ -2069,11 +2405,24 @@ export function VoidforgeGame() {
 
         const velocityAngle = playerSpeed > 1 ? Math.atan2(player.vy, player.vx) : player.angle;
         const starStretch = localReducedFx ? 0 : clamp((speedRatio - 0.5) / 0.5, 0, 1) * localEffectIntensity;
+        const hazeWidth = width * 1.3;
+        const hazeHeight = height * 1.25;
+        for (const wisp of haze) {
+          const drift = localReducedFx ? 0 : Math.sin(motionClock * 0.08 + wisp.phase) * 26;
+          wisp.view.x = ((wisp.x * hazeWidth - cameraX * wisp.factor + drift) % hazeWidth + hazeWidth) % hazeWidth - width * 0.15;
+          wisp.view.y = ((wisp.y * hazeHeight - cameraY * wisp.factor * 0.72) % hazeHeight + hazeHeight) % hazeHeight - height * 0.12;
+          const hazeScale = wisp.scale * clamp(Math.min(width / 1920, height / 1080), 0.72, 1.7);
+          wisp.view.scale.set(hazeScale * (1 + assemblyPressure * 0.05));
+          wisp.view.alpha = (0.72 + assemblyPressure * 0.28) * localEffectIntensity;
+        }
         for (const star of stars) {
           star.view.x = ((star.x * width - cameraX * star.factor) % width + width) % width;
           star.view.y = ((star.y * height - cameraY * star.factor) % height + height) % height;
           star.view.rotation = velocityAngle;
           star.view.scale.set(1 + starStretch * star.factor * 40, 1);
+          star.view.alpha = localReducedFlashing
+            ? 0.88
+            : 0.72 + Math.sin(motionClock * star.twinkle + star.phase) * 0.2;
         }
         for (const mote of dust) {
           mote.view.x = ((mote.x * width - cameraX * mote.factor) % width + width) % width;
@@ -2087,6 +2436,13 @@ export function VoidforgeGame() {
           fragment.view.rotation += dt * fragment.spin;
           fragment.view.scale.set(0.82 + speedRatio * fragment.factor * 1.4, 1);
         }
+        for (const fragment of nearDebris) {
+          fragment.view.x = ((fragment.x * width - cameraX * fragment.factor) % width + width) % width;
+          fragment.view.y = ((fragment.y * height - cameraY * fragment.factor) % height + height) % height;
+          fragment.view.rotation += dt * fragment.spin;
+          const stretch = fragment.scale * (0.9 + speedRatio * 0.32);
+          fragment.view.scale.set(stretch + starStretch * 0.16, stretch);
+        }
 
         const bossDistance = distance(player.x, player.y, engine.x, engine.y);
         const nearbyThreats = sentinels.reduce((count, sentinel) => (
@@ -2098,13 +2454,15 @@ export function VoidforgeGame() {
           const crowdPressure = clamp(nearbyThreats / 14, 0, 1);
           desiredZoom = clamp(0.9 - bossPressure * 0.12 - crowdPressure * 0.045, 0.735, 0.86);
         }
+        if (!localReducedFx) desiredZoom -= clamp(activationPulse / 2.2, 0, 1) * 0.045;
         if (localReducedFx) desiredZoom = bossPresent ? 0.82 : 0.88;
         const zoomFollow = dt > 0 ? 1 - Math.exp(-dt * 1.8) : 1;
         cameraZoom = lerp(cameraZoom, desiredZoom, zoomFollow);
         activationPulse = Math.max(0, activationPulse - dt);
         shake = Math.max(0, shake - dt * 45);
-        const shakeX = localReducedFx || dt <= 0 ? 0 : (rng() - 0.5) * shake;
-        const shakeY = localReducedFx || dt <= 0 ? 0 : (rng() - 0.5) * shake;
+        const trauma = clamp(shake / 48, 0, 1);
+        const shakeX = localReducedFx || dt <= 0 ? 0 : Math.sin(motionClock * 37.4) * trauma * trauma * 19;
+        const shakeY = localReducedFx || dt <= 0 ? 0 : Math.sin(motionClock * 29.1 + 1.7) * trauma * trauma * 15;
         const presentationScale = clamp(Math.min(width / 1920, height / 1080), 0.85, 2);
         const worldScale = cameraZoom * presentationScale;
         world.scale.set(worldScale);
@@ -2132,6 +2490,32 @@ export function VoidforgeGame() {
           clamp(shake / 48, 0, 0.72),
           damageDanger,
         );
+        background.tint = highContrastRef.current ? 0xffffff : bossPresent ? 0xeee7ff : assemblyPressure > 0.65 ? 0xfff4ed : 0xffffff;
+        threatFrame.clear();
+        const frameAlpha = danger * localEffectIntensity * (localReducedFlashing ? 0.26 : 0.34);
+        if (frameAlpha > 0.025) {
+          const inset = clamp(Math.min(width, height) * 0.035, 24, 58);
+          const arm = clamp(Math.min(width, height) * 0.07, 36, 92);
+          const frameColor = highContrastRef.current ? 0xffd7c2 : 0xff755f;
+          threatFrame.moveTo(inset, inset + arm).lineTo(inset, inset).lineTo(inset + arm, inset)
+            .stroke({ color: frameColor, width: 2.2, alpha: frameAlpha });
+          threatFrame.moveTo(width - inset - arm, inset).lineTo(width - inset, inset).lineTo(width - inset, inset + arm)
+            .stroke({ color: frameColor, width: 2.2, alpha: frameAlpha });
+          threatFrame.moveTo(inset, height - inset - arm).lineTo(inset, height - inset).lineTo(inset + arm, height - inset)
+            .stroke({ color: frameColor, width: 2.2, alpha: frameAlpha });
+          threatFrame.moveTo(width - inset - arm, height - inset).lineTo(width - inset, height - inset).lineTo(width - inset, height - inset - arm)
+            .stroke({ color: frameColor, width: 2.2, alpha: frameAlpha });
+        }
+        bossIndicator.visible = bossPresent && !bossOnScreen && localEffectIntensity > 0.05;
+        if (bossIndicator.visible) {
+          const rawX = projectedBossX * width;
+          const rawY = projectedBossY * height;
+          const centerX = width * 0.5;
+          const centerY = height * 0.5;
+          bossIndicator.position.set(clamp(rawX, 46, width - 46), clamp(rawY, 46, height - 46));
+          bossIndicator.rotation = Math.atan2(rawY - centerY, rawX - centerX);
+          bossIndicator.alpha = highContrastRef.current ? 0.94 : 0.62 + danger * 0.28;
+        }
         const thrustHeat = speedRatio > 0.28 ? ((speedRatio - 0.28) / 0.72) * 0.42 : 0;
         const heat = clamp(
           thrustHeat + (bossOnScreen ? 0.24 : 0) + clamp(particles.length / 420, 0, 1) * 0.16,
@@ -2255,9 +2639,11 @@ export function VoidforgeGame() {
         },
         setHighContrast(value) {
           background.alpha = value ? 0.46 : 0.64;
+          hazeLayer.alpha = value ? 0 : 1;
           starLayer.alpha = value ? 1 : 0.82;
           dustLayer.alpha = value ? 0.62 : 1;
           farDebrisLayer.alpha = value ? 0.45 : 0.82;
+          nearDebrisLayer.alpha = value ? 0 : 0.54;
         },
         setColorMode(value) { postFx.setColorProfile(value); },
       };

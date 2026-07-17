@@ -125,6 +125,11 @@ button {
   animation: none;
 }
 
+.reduced-fx .tactical-frame,
+.reduced-flashing .tactical-frame {
+  transition: none;
+}
+
 .reduced-flashing .center-alert {
   opacity: 1;
   text-shadow: none;
@@ -422,6 +427,39 @@ button {
   pointer-events: none;
 }
 
+.tactical-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(440px, 38vw);
+  height: min(250px, 32vh);
+  transform: translate(-50%, -50%);
+  opacity: 0.26;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.tactical-frame i {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: rgba(104, 224, 255, 0.5);
+  border-style: solid;
+}
+
+.tactical-frame i:nth-child(1) { top: 0; left: 0; border-width: 1px 0 0 1px; }
+.tactical-frame i:nth-child(2) { top: 0; right: 0; border-width: 1px 1px 0 0; }
+.tactical-frame i:nth-child(3) { right: 0; bottom: 0; border-width: 0 1px 1px 0; }
+.tactical-frame i:nth-child(4) { bottom: 0; left: 0; border-width: 0 0 1px 1px; }
+
+.hud.threat-high .tactical-frame {
+  opacity: 0.58;
+  transform: translate(-50%, -50%) scale(1.025);
+}
+
+.hud.threat-high .tactical-frame i {
+  border-color: rgba(255, 119, 96, 0.72);
+}
+
 .hud-top {
   position: absolute;
   top: 0;
@@ -515,6 +553,24 @@ button {
   animation: radar-sweep 3.8s linear infinite;
 }
 
+.radar-rings {
+  position: absolute;
+  inset: 18%;
+  border: 1px solid rgba(82, 223, 255, 0.12);
+  border-radius: 50%;
+}
+
+.radar-rings::before,
+.radar-rings::after {
+  position: absolute;
+  border: 1px solid rgba(82, 223, 255, 0.1);
+  border-radius: 50%;
+  content: "";
+}
+
+.radar-rings::before { inset: 24%; }
+.radar-rings::after { inset: -33%; }
+
 @keyframes radar-sweep { to { transform: rotate(360deg); } }
 
 .radar-dot {
@@ -546,6 +602,33 @@ button {
   white-space: nowrap;
 }
 
+.radar-status {
+  position: absolute;
+  top: calc(100% + 22px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #a8c1d4;
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.radar-status i {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  border: 1px solid currentColor;
+}
+
+.radar-wrap.danger .radar-status {
+  color: #ff9d86;
+  text-shadow: 0 0 12px rgba(255, 94, 75, 0.42);
+}
+
 .hud-bottom {
   position: absolute;
   right: 0;
@@ -567,7 +650,7 @@ button {
   justify-content: space-between;
   margin-bottom: 8px;
   color: #8fa6ba;
-  font-size: 8px;
+  font-size: clamp(9px, 0.55vw, 11px);
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -765,6 +848,7 @@ button {
   .hud-cluster { gap: 10px; }
   .hud-stat { min-width: 52px; }
   .radar-wrap { width: 72px; height: 72px; }
+  .radar-status, .tactical-frame { display: none; }
   .construction-panel { width: 84vw; }
   .help-grid { grid-template-columns: 1fr; }
   .utility-button .utility-label { display: none; }
@@ -801,6 +885,27 @@ button {
   .radar-caption {
     margin-top: 14px;
     font-size: 14px;
+  }
+
+  .radar-status {
+    top: calc(100% + 38px);
+    gap: 14px;
+    font-size: 16px;
+  }
+
+  .radar-status i {
+    width: 14px;
+    height: 14px;
+  }
+
+  .tactical-frame {
+    width: min(880px, 38vw);
+    height: min(500px, 32vh);
+  }
+
+  .tactical-frame i {
+    width: 48px;
+    height: 48px;
   }
 
   .radar-dot {

@@ -155,7 +155,22 @@ void main(void)
     float peakB = max(bloomB.r, max(bloomB.g, bloomB.b));
     vec3 bloom = bloomA * smoothstep(0.66, 0.98, peakA)
         + bloomB * smoothstep(0.66, 0.98, peakB);
-    color += bloom * 0.5 * bloomStrength;
+    float bloomNormalizer = 0.5;
+    if (bloomStrength > 0.13) {
+        vec2 crossStep = uInputPixel.zw * uBloomPixels * vec2(0.7071, 0.7071);
+        vec3 bloomC = texture(uTexture, clampToInput(baseUv + crossStep)).rgb;
+        vec3 bloomD = texture(uTexture, clampToInput(baseUv - crossStep)).rgb;
+        float peakC = max(bloomC.r, max(bloomC.g, bloomC.b));
+        float peakD = max(bloomD.r, max(bloomD.g, bloomD.b));
+        bloom += bloomC * smoothstep(0.66, 0.98, peakC)
+            + bloomD * smoothstep(0.66, 0.98, peakD);
+        bloomNormalizer = 0.27;
+    }
+    color += bloom * bloomNormalizer * bloomStrength;
+
+    vec3 thermalLight = mix(vec3(0.08, 0.025, 0.13), vec3(0.14, 0.055, 0.018), 0.5 + turbulence * 0.18);
+    color += thermalLight * heatMask * heat * 0.34;
+    color += vec3(0.12, 0.065, 0.16) * shockRing * shock * 0.22;
 
     float vignette = smoothstep(0.38, 0.92, length(radial * vec2(0.72, 1.0)));
     color *= 1.0 - vignette * danger * 0.065;
@@ -168,6 +183,9 @@ void main(void)
     );
     float accessibleGrade = uColorProfile < 0.5 ? grade : grade * 0.6;
     color *= mix(vec3(1.0), gradeTint, accessibleGrade);
+    color = (color - vec3(0.5)) * (1.0 + grade * 0.055) + vec3(0.5);
+    vec3 highlightExcess = max(color - vec3(0.94), vec3(0.0));
+    color = max(vec3(0.0), color - highlightExcess * 0.14);
 
     if (uColorProfile > 0.5 && uColorProfile < 1.5) {
         color = vec3(
