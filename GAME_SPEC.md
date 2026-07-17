@@ -96,7 +96,7 @@ Selects among player pressure, Dread Engine guard, and charge interception. It a
 - The camera follows smoothly with directional lead capped at 12% of viewport width.
 - The player remains inside a central 40% safe region during ordinary flight.
 - Threat zoom considers nearby projectiles and Dread Engine distance; transitions take at least 500 ms to avoid pumping.
-- Parallax comprises distant stars, nebula/dust, and near motes. Background contrast stays below gameplay contrast.
+- Parallax comprises directional distant stars, nebula/dust, and near motes. Background contrast stays below gameplay contrast.
 - Impact shake is amplitude-capped and disabled by Reduced Motion.
 - The awakening reveal uses lighting, zoom, audio, and HUD warnings; it never becomes a non-interactive cutscene.
 
@@ -105,10 +105,10 @@ Selects among player pressure, Dread Engine guard, and charge interception. It a
 - Detailed 2D sprites with clean high-resolution edges and strong silhouettes
 - Deep black-blue space, restrained nebulae, and layered parallax
 - Fracture asteroids with persistent mining cracks and chipped overlays
-- Emissive engines, maneuvering jets, weapon ports, tethered cargo, and visible boss damage
+- Emissive engines, maneuvering jets, weapon ports, tethered cargo, articulated enemy secondary motion, and persistent enemy/boss damage overlays
 - GPU particles for sparks, fragments, plasma, debris, and shockwaves
-- Selective soft bloom; heat distortion limited to engines and major blasts
-- Motion streaks only above 80% maximum speed
+- Selective soft bloom; a one-pass WebGL filter limits heat distortion/refraction to engines and major blasts and keeps chromatic danger cues restrained
+- Directional motion streaks only at high speed
 - No pixel-art treatment, CRT filter, nearest-neighbor scaling, block font, photorealism, or effect density that hides hazards
 
 ### Gameplay color roles
@@ -149,7 +149,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Reduced Motion: disables camera drift, zoom response, distortion, and most shake
 - Reduced Flashing: replaces full-screen flashes with localized halos and limits luminance transitions
 - Effect Intensity: Low / Standard / High particle and bloom presets
-- Three color-vision presets plus shape-coded contacts and meters
+- Three scene-wide color-vision transforms plus shape-coded contacts and meters
 - Independent master, effects, music, voice, and bass controls
 - Rebindable keyboard actions and adjustable gamepad dead zone
 - Toggle/hold options for primary fire; pause on focus loss
@@ -162,6 +162,7 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 ## Performance and verification
 
 - Maintain near 60 FPS at 1920×1080 during maximum encounter density on a representative mid-range desktop.
+- Render the post-processing pass at half resolution at 4K; the verified live 4K bombardment profile is 60 FPS average with a 16.8 ms p95 frame time.
 - Pool projectiles, fragments, and particles; avoid per-frame allocations in hot paths.
 - Cap simultaneously visible particles by accessibility preset and device performance.
 - Capture 1920×1080 and 3840×2160 frames for exploration, mining, construction, dense combat, pursuit, multi-hit damage, destruction, and game over.

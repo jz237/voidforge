@@ -39,11 +39,14 @@ Laser fire mines planetoids as well as attacking enemies. Controlled bursts rele
 
 The utility bar provides independent reduced-motion and reduced-flashing controls, three effect-density levels, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, and fullscreen controls. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, HUD meters, scanner shapes, and audio rather than color alone.
 
-The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. A live 4K bombardment profile recorded 59 FPS average with a 16.8 ms p95 frame time; see the [performance capture](artifacts/performance-3840x2160.json).
+The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. A live 4K bombardment profile recorded 60 FPS average with a 16.8 ms p95 frame time; see the [performance capture](artifacts/performance-3840x2160.json).
+
+Ordered WebGL layers separate the Vesper and both friendly and hostile shots from terrain, pickups, enemies, and decorative effects, keeping them readable during dense combat. Directional speed streaks, layered dust and star parallax, articulated enemy motion, persistent damage overlays, and threat-aware camera lead and zoom add depth without changing the playfield's arcade clarity. A single custom PixiJS v8 WebGL pass supplies localized heat haze/refraction, a restrained chromatic danger cue and vignette, and scene-wide color-vision transforms; accessibility settings can reduce motion, flashing, and effect intensity immediately. The pass renders at half resolution at 4K to preserve frame time.
 
 ## Architecture
 
 - `app/game/VoidforgeGame.tsx` — PixiJS WebGL renderer, simulation, entities, camera, input, HUD, and deterministic showcase scenes
+- `app/game/postfx.ts` — one-pass custom WebGL post-processing and scene-wide accessibility color transforms
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling

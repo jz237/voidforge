@@ -54,16 +54,24 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Pool shots, charges, enemy projectiles, debris, and high-frequency particles.
 - Seed random generation for reproducible screenshots and automated scenarios.
 - Treat 1920×1080 as the layout coordinate system; resolution and device pixel ratio affect render density, not mechanics.
+- Keep terrain, pickups, enemies, the player, friendly shots, hostile shots, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
+- Run heat haze/refraction, the chromatic danger cue and vignette, and color-vision transforms through one custom PixiJS v8 WebGL pass. The pass uses half resolution at 4K.
 - Fall back gracefully when an optional filter is unavailable. Bloom and distortion must never gate play.
 
 ## Visual guardrails
 
 - Gameplay silhouettes must read with bloom and color removed.
 - Bright backgrounds remain behind a contrast mask or are repositioned away from active combat.
-- Hostile shots render above decorative particles; the player and pickups render above background effects.
+- Ordered render layers isolate the player and friendly and hostile shots from display-list insertion changes; decorative effects remain constrained so they cannot hide hazards.
+- Camera lead follows travel direction; nearby threats and the Dread Engine produce a smooth, bounded zoom-out.
+- Directional speed streaks and parallax dust/stars respond to velocity, while Fabricators and Sentinels use articulated secondary motion instead of rigid sprite movement.
+- Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone.
+- Localized heat haze/refraction and restrained chromatic danger/vignette effects share one post-processing pass with scene-wide color-vision transforms.
 - Screen shake is capped, localized where possible, and fully disabled by Reduced Motion.
 - Full-screen white flashes are not used. Reduced Flashing is the safe default if preference detection is unavailable.
+- Reduced Motion, Reduced Flashing, and Effect Intensity directly scale or disable the matching shader, camera, and motion cues.
 - At 4K, assets gain detail but not smaller apparent size; HUD maintains its 1080p-equivalent measurements.
+- The verified live 4K bombardment profile is 60 FPS average with a 16.8 ms p95 frame time.
 
 ## Audio guardrails
 
