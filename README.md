@@ -55,6 +55,12 @@ Inside 1080 world units, an available disruption attack announces a 0.95-second 
 
 Construction warnings escalate at 5, 10, 15, and 19 modules. Nova Charges can be intercepted by planetoids, Sentinels, Fabricators, or hostile bolts. Current canonical awards are 100 for a shard, 250 for a loaded Fabricator, 400 for a Sentinel, 750 for an Engine node, and 10,000 for the core.
 
+## Arcade run progression
+
+Qualifying score actions use the multiplier visible beside the score, then increase the next action by 0.25× up to 5.00×. The chain lasts 4.5 active-play seconds; pausing freezes it, while expiration, Hull Lost, Arena Clear, game over, and a new run reset it to 1.00×. The first extra hull is awarded at 25,000 points, then every 50,000 points, with a five-hull cap.
+
+A surviving hit now enters a short **Hull Lost** presentation, preserves score and Nova Charges, and returns Vesper with two seconds of protection. Destroying the Dread Engine enters a 5.5-second **Arena Clear** summary with core points, clear time, time bonus, remaining-hull bonus, field bonus, run total, and any extra-hull award. Score, hulls, charges, extra-hull progress, and the locally persisted high score continue into the next field. The best score is stored as `voidforge-high-score-v1`; showcase, profile, and explicit tutorial-QA URLs do not write it.
+
 ## Accessibility and display
 
 The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, the master Sound control, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Visible coachmarks and notices remain authoritative, and the polite live-region fallback stays active whenever Voice is off, master Sound is muted, or speech synthesis is unavailable. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
@@ -78,10 +84,11 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
 - `app/game/spoken-guidance.mjs` — original guide/Engine copy, persisted Voice policy, cue allowlists, and no-backlog gating
 - `app/game/boss-behavior.mjs` — deterministic Awakening timing, bounded pursuit prediction, and swept radial-wave collision helpers
+- `app/game/arcade-run.mjs` — deterministic multiplier, high-level score transactions, extra hulls, Hull Lost reset, and Arena Clear bonus rules
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
-- `tests/` — deterministic core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
+- `tests/` — deterministic arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
 - `artifacts/screenshots/` — the eight required gameplay states at both 1080p and native 4K
 - `RESEARCH.md`, `GAME_SPEC.md`, and `IMPLEMENTATION_NOTES.md` — research boundaries, game specification, and clean-room decisions
 
@@ -89,7 +96,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The current boss climax is shipped. Remaining work is the surrounding arcade-run layer: persistent high score, multiplier, extra-life and clear bonuses; richer hull-lost/arena-clear presentation and attract play; field modifiers that prioritize coordination, scarcity, and interception over raw counts; remaining input customization; physical-device mobile validation; and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax and surrounding arcade-run layer are shipped. Remaining work includes a true non-persistent attract demonstration; field modifiers that prioritize coordination, scarcity, and interception over raw counts; remaining input customization; physical-device mobile validation; and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 
@@ -98,7 +105,7 @@ npm test
 npm run lint
 ```
 
-Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, and `gameover`.
+Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, `hull-lost`, `arena-clear`, and `gameover`.
 
 Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
 

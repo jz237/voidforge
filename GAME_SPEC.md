@@ -28,7 +28,7 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 7. **Strike:** evade its predicted pursuit and radial disruption wave, then launch homing Nova Charges. Planetoids, Sentinels, Fabricators, and hostile bolts can intercept them.
 8. **Advance:** 13 successful hits overload the Dread Engine, clear the Cinder Expanse, and begin a new, harder run.
 
-The player starts with three hulls. Losing a hull drops no stored charges, grants 2 seconds of spawn protection, and resumes in a nearby safe pocket. The run ends at zero hulls.
+The player starts with three hulls. A surviving loss enters a 1.25-second **Hull Lost** presentation, drops no stored charges, resets the score chain, then grants 2 seconds of spawn protection in a nearby safe pocket. The run ends at zero hulls.
 
 ## Cinder Expanse tuning baseline
 
@@ -44,6 +44,9 @@ All values are data-driven and subject to playtesting.
 | Dread Engine construction | 20 delivered shards |
 | Dread Engine durability | 13 charge hits |
 | Charge inventory | 20 maximum |
+| Score chain | 1.00× start; +0.25× per action; 5.00× cap; 4.5 s window |
+| Extra hulls | 25,000, then every 50,000 points; 5-hull cap |
+| Arena Clear presentation | 5.5 s with core, time, hull, and total breakdown |
 | Expected first activation | 120–180 s without active containment |
 | Expected arena duration | 4–6 min |
 
@@ -96,7 +99,11 @@ The normal first run is a short, non-modal guided flight layered over active pla
 - **Mining heat:** hits raise asteroid fracture energy. Hits less than 145 ms apart still add 0.75 extraction progress, allowing held fire to emit shards, but deal two integrity damage instead of one; deliberate pulses add 1.0 progress and preserve more yield. Overloading destroys the rock and any unextracted crystals.
 - **Nova Charge:** consumes one stored charge, acquires the active Dread Engine, and curves toward it. Planetoids, Sentinels, Fabricators, and hostile bolts can intercept it. No target means no launch and no ammo loss.
 - **Damage:** one unshielded hostile projectile or Dread Engine collision costs a hull. Clear audiovisual warnings precede unavoidable high-speed contact.
-- **Canonical scoring:** shard +100; loaded Fabricator +250; Sentinel +400; Dread Engine node +750; core +10,000. Clear-time and hull bonuses remain a progression target rather than part of the current release.
+- **Canonical scoring:** shard +100; unloaded Fabricator +150; loaded Fabricator +250; Sentinel +400; Dread Engine node +750; core +10,000. Destroying an exhausted planetoid retains its small flat +5 award without extending the chain.
+- **Score chain:** a qualifying action awards `round(base points × current multiplier)`, then raises the next-action multiplier by 0.25× up to 5.00× and refreshes a 4.5-second active-play window. Pause and Hull Lost freeze the clock; expiration, Hull Lost, Arena Clear, game over, and a new run reset it to 1.00×. Clear bonuses are never multiplied and never extend the chain.
+- **Extra hulls:** the first arrives at 25,000, then at 75,000 and every additional 50,000 points. Every crossed threshold is consumed atomically, even when Vesper is already at the five-hull cap; score and threshold progress carry between fields.
+- **Arena Clear bonus:** after the core transaction, award `max(0, 30000 - floor(active field seconds) × 250) + current hulls × 2000`. Tutorial, pause, Hull Lost, and Arena Clear time do not count. The lives term is captured before bonus-triggered extra hulls, preventing a feedback loop.
+- **High score:** sanitize and persist the best run locally under `voidforge-high-score-v1`, updating it as soon as a normal run passes the saved value. Showcase, profile, and explicit tutorial-QA URLs may display an in-memory best but never write persistent progression.
 
 ## Enemy behavior
 
@@ -155,12 +162,14 @@ Selects among player pressure, Dread Engine guard, and charge interception. It a
 
 ## HUD and scanner
 
-- Upper left: score, multiplier, high score
+- Upper left: score, live multiplier/chain countdown, high score, and field number
 - Upper center: construction meter with 20 module ticks and explicit state label
 - Upper right: hulls and Nova Charge count
 - Lower right: circular scanner with shape-coded contacts, Vesper heading, Dread Engine bearing, and range rings
 - Lower center: short status messages such as `SHARD SECURED`, `MODULE INSTALLED`, and `CHARGE INTERCEPTED`
 - Pause overlay: controls, audio, accessibility, restart, and resume
+- Hull Lost overlay: remaining hulls, preserved Nova inventory, and chain-reset status
+- Arena Clear overlay: core award, active clear time, time bonus, hull bonus, field bonus, run total, and any extra-hull award
 
 The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe-area margins, and a minimum 18 px equivalent body size at 1080p.
 
@@ -196,7 +205,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 
 ## Game states and progression
 
-Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. First-run guidance and the timed Dread Engine Awakening are event-driven phases within playing rather than separate blocking states or cutscenes. Pause freezes boss-phase timers; reset, destruction, and game over cannot leave a pending disruption attack alive. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material.
+Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. Hull Lost and Arena Clear are explicit, short presentation phases layered over the field; they hide touch flight controls, reject gameplay input, and freeze the field/chain clock without a long cinematic. Arena Clear additionally rejects further scoring and enemy spawning, clears pending boss hazards, and preserves score, hulls, Nova Charges, extra-hull progress, and high score into the next field. First-run guidance and the timed Dread Engine Awakening remain event-driven phases within playing. Pause freezes lifecycle and boss timers; reset, destruction, and game over cannot leave a pending disruption attack alive. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material. A true gameplay attract demonstration remains deferred; the title currently uses ambient field motion.
 
 ## Performance and verification
 
@@ -208,11 +217,11 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Verify that player, shards, enemies, charges, hostile shots, and scanner contacts remain identifiable in every capture.
 - Browser QA for the climax additionally verifies retained control during Awakening, no premature pursuit/contact damage, contact warnings only inside 560 units while closing faster than 95 units per second with a 2.4-second anti-spam interval, synchronized disruption text/audio/ring warnings, the swept wave hit, and safe Reduced Motion/Reduced Flashing variants. These dynamic checks are not inferred from the frozen screenshot matrix.
 - Browser mobile-viewport and pointer-event checks cover portrait/landscape layout, pointer capture and cancellation, safe-area rules, and background auto-pause. Physical-device mobile Safari and Chrome validation remains pending.
-- Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, canonical scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides. `tests/boss-behavior.test.mjs` separately covers the 2.5-second Awakening countdown, bounded pursuit prediction, and swept radial collision helpers exported by `app/game/boss-behavior.mjs`.
+- Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, canonical scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides. `tests/arcade-run.test.mjs` covers multiplier timing, rounding, multi-threshold extra hulls, the five-hull cap, Hull Lost reset, and the exact Arena Clear formula. `tests/boss-behavior.test.mjs` separately covers the 2.5-second Awakening countdown, bounded pursuit prediction, and swept radial collision helpers exported by `app/game/boss-behavior.mjs`.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 - Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
 - Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

@@ -28,11 +28,12 @@ test("server-renders the VOIDFORGE launch screen", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
-test("ships the game, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, audio, styles, layout, packageJson] = await Promise.all([
+test("ships the game, arcade-run layer, procedural audio, high-resolution art, and no starter preview", async () => {
+  const [component, tutorial, guidance, arcadeRun, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/arcade-run.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -58,6 +59,12 @@ test("ships the game, procedural audio, high-resolution art, and no starter prev
   assert.match(component, /speechSynthesis\.cancel/);
   assert.match(guidance, /voidforge-guide-voice/);
   assert.match(guidance, /thirteen Nova charges/i);
+  assert.match(component, /voidforge-high-score-v1/);
+  assert.match(component, /Arena Clear/);
+  assert.match(component, /showcase=arena-clear|scene === "arena-clear"/);
+  assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
+  assert.match(arcadeRun, /FIRST_EXTRA_HULL_SCORE = 25_000/);
+  assert.match(arcadeRun, /awardArenaClearBonus/);
   assert.match(styles, /safe-area-inset-bottom/);
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /max-height:\s*600px/);

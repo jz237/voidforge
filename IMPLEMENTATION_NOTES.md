@@ -58,6 +58,9 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Store ordinary completion or Skip under the versioned `voidforge-tutorial-v1-complete` key. Help replay and every explicit `tutorial` query override are non-persistent; valid overrides take precedence, while showcase/profile runs suppress onboarding by default.
 - Keep spoken cue copy and gating in `app/game/spoken-guidance.mjs`. Persist the subordinate Voice choice as `voidforge-guide-voice`, default it on only when speech synthesis is supported, and consume suppressed cue IDs so enabling audio later cannot release stale guidance.
 - Keep deterministic Dread Engine timing and geometry helpers in `app/game/boss-behavior.mjs`. `advanceAwakeningCountdown` owns the clamped 2.5-second phase transition, `predictPursuitTarget` applies a caller-supplied lead inside world bounds, and `expandingWaveCrossedCircle` performs swept radial collision without tunneling.
+- Keep score, chain, extra-hull, Hull Lost reset, and Arena Clear bonus transactions in `app/game/arcade-run.mjs`. The Pixi runtime owns presentation/timers, but every score mutation passes through the pure module so multi-threshold awards and the five-hull cap remain deterministic.
+- Persist only the sanitized high score under `voidforge-high-score-v1`. New runs reset score and chain; field transitions preserve the run, charges, next hull threshold, and best score. Showcase, profile, and explicit tutorial-QA URLs never write the saved best.
+- Count active field time only after training ends. Pause and Hull Lost freeze both field and chain clocks; Arena Clear snapshots the clock, locks scoring/spawning/input for 5.5 seconds, then resets the field clock and chain for the next pressure front.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - During the 2.5-second Awakening, retain player control while braking the Engine and suppressing pursuit and boss contact damage. Afterward, derive pursuit lead as `clamp(distance / 1050, 0.42, 1.05)` seconds and clamp the target to 180 px world margins.
 - Emit predictive contact text and warning audio only when the Engine is within 560 units and closing faster than 95 units per second; gate repeats behind a 2.4-second anti-spam cooldown.
@@ -117,21 +120,21 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 Shipped in the current build:
 
-- Title/attract screen and instructions
+- Ambient title screen and instructions
 - One balanced Cinder Expanse arena with a bounded world and scanner
 - Mining, shard collection, Fabricators, Sentinels, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
-- Canonical scoring for shards, loaded Fabricators, Sentinels, Engine nodes, and the core; three hulls, charge inventory, pause, M mute, blur auto-pause, game over, and restart
+- Centralized chained scoring with a 1.00×–5.00× HUD multiplier, a locally persisted high score, extra hulls at 25,000 then every 50,000 points, the five-hull cap, and exact clear-time/remaining-hull bonuses
+- Explicit 1.25-second Hull Lost and 5.5-second Arena Clear presentations, protected respawn, preserved score/charge inventory across a loss, scored clear breakdown, field-to-field run preservation, game over, and restart
 - Keyboard, gamepad, and responsive touch controls for phone portrait and landscape
 - Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, deterministic QA overrides, and enlarged phone tutorial copy/actions
 - Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
-- Deterministic test mode, core and boss-behavior mechanic tests, browser smoke test, and the eight required screenshot states at 1080p and 4K
+- Deterministic test mode, arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
 
 ## Remaining parity backlog
 
-- Add persistent high score, score multiplier, extra-life thresholds, clear-time and remaining-hull bonuses, and their HUD presentation.
-- Promote hull lost and arena clear from timed in-play transitions to fully specified presentation phases, and expand the ambient title into an optional gameplay attract demonstration.
+- Expand the ambient title into an optional, non-persistent gameplay attract demonstration.
 - Make later fields change coordination, resource scarcity, interception pressure, palette, and landmarks before relying on raw enemy-count growth; additional named arenas remain deferred.
 - Add keyboard rebinding, adjustable gamepad dead zone, primary-fire toggle/hold choice, and any remaining independent audio controls promised by the specification.
 - Extend the adaptive score, destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
@@ -145,6 +148,7 @@ Shipped in the current build:
 - [ ] No reference assets or audio are present in the repository.
 - [ ] Every critical state has visual, textual, and/or audio redundancy.
 - [x] Deterministic boss tests cover the 2.5-second Awakening countdown, bounded pursuit prediction, and swept-wave collision without tunneling.
+- [x] Deterministic arcade-run tests cover score rounding, the 4.5-second multiplier window, Hull Lost reset, multi-threshold extra hulls, the five-hull cap, and Arena Clear bonuses.
 - [ ] Browser play verifies no pursuit/contact damage during Awakening, predictive contact-warning thresholds and 2.4-second anti-spam, one unshielded hull loss per wave, and complete pause/reset/destruction/game-over cleanup.
 - [ ] Disruption text, warning audio, and non-color ring remain synchronized and readable with Reduced Motion, Reduced Flashing, High Contrast, and FX Off.
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.

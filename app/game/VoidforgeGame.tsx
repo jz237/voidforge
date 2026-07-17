@@ -34,12 +34,40 @@ import {
   expandingWaveCrossedCircle,
   predictPursuitTarget,
 } from "./boss-behavior.mjs";
+import {
+  INITIAL_MULTIPLIER,
+  addPersistentScore,
+  advanceScoreChain,
+  awardArenaClearBonus,
+  awardScoreAction,
+  createArcadeRunState,
+  loseHull,
+} from "./arcade-run.mjs";
 
 type ScreenMode = "title" | "playing" | "paused" | "gameover";
 type ContactKind = "worker" | "warrior" | "boss";
 type ColorMode = "standard" | "deuteranopia" | "protanopia" | "tritanopia";
 type TutorialStep = "move" | "mine" | "collect" | "threat";
 type TutorialEvent = "player-thrusted" | "shard-extracted" | "shard-collected" | "acknowledge" | "skip";
+type RunPhaseState =
+  | { kind: "active" }
+  | { kind: "hull-lost"; lives: number; charges: number }
+  | {
+      kind: "arena-clear";
+      field: number;
+      elapsedSeconds: number;
+      corePoints: number;
+      timeBonus: number;
+      hullBonus: number;
+      totalBonus: number;
+      totalScore: number;
+      extraHullsAwarded: number;
+    };
+
+const HIGH_SCORE_STORAGE_KEY = "voidforge-high-score-v1";
+const HULL_LOST_SECONDS = 1.25;
+const RESPAWN_PROTECTION_SECONDS = 2;
+const ARENA_CLEAR_SECONDS = 5.5;
 
 interface RadarContact {
   id: number;
@@ -53,6 +81,9 @@ interface RadarContact {
 
 interface HudState {
   score: number;
+  highScore: number;
+  multiplier: number;
+  chainSecondsRemaining: number;
   lives: number;
   charges: number;
   zone: number;
@@ -303,6 +334,9 @@ const TUTORIAL_COPY: Record<TutorialStep, {
 
 const INITIAL_HUD: HudState = {
   score: 0,
+  highScore: 0,
+  multiplier: INITIAL_MULTIPLIER,
+  chainSecondsRemaining: 0,
   lives: RULES.playerLives,
   charges: 0,
   zone: 1,
@@ -559,14 +593,20 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
         <i /><i /><i /><i />
       </div>
       <div className="hud-top">
-        <div className="hud-cluster">
-          <div className="hud-stat">
-            <span className="hud-label">Score</span>
-            <span className="hud-value">{formatScore(hud.score)}</span>
+        <div className="hud-cluster score-stack">
+          <div className="score-row">
+            <div className="hud-stat">
+              <span className="hud-label">Score</span>
+              <span className="hud-value">{formatScore(hud.score)}</span>
+            </div>
+            <div className="hud-stat optional">
+              <span className="hud-label">Field</span>
+              <span className="hud-value">{hud.zone.toString().padStart(2, "0")}</span>
+            </div>
           </div>
-          <div className="hud-stat optional">
-            <span className="hud-label">Field</span>
-            <span className="hud-value">0{hud.zone}</span>
+          <div className="score-meta" aria-label={`Multiplier ${hud.multiplier.toFixed(2)}, high score ${hud.highScore}`}>
+            <span>Chain <strong>×{hud.multiplier.toFixed(2)}{hud.chainSecondsRemaining > 0 ? ` · ${hud.chainSecondsRemaining.toFixed(1)}s` : ""}</strong></span>
+            <span>Hi <strong>{formatScore(hud.highScore)}</strong></span>
           </div>
         </div>
         <Radar contacts={hud.contacts} status={hud.tacticalStatus} danger={hud.threatLevel} />
@@ -632,6 +672,8 @@ export function VoidforgeGame() {
   const [ready, setReady] = useState(false);
   const [screenMode, setScreenMode] = useState<ScreenMode>("title");
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
+  const [runPhase, setRunPhase] = useState<RunPhaseState>({ kind: "active" });
+  const [extraHullAlert, setExtraHullAlert] = useState<{ count: number; key: number } | null>(null);
   const [notice, setNotice] = useState<{ text: string; danger: boolean; key: number } | null>(null);
   const [muted, setMuted] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -759,6 +801,17 @@ export function VoidforgeGame() {
     let localReducedFlashing = reducedFlashingRef.current;
     let localEffectIntensity = effectIntensityRef.current;
     let idCounter = 0;
+    const runtimeParams = new URLSearchParams(window.location.search);
+    const highScorePersistenceEnabled = !runtimeParams.has("showcase")
+      && runtimeParams.get("profile") !== "1"
+      && !runtimeParams.has("tutorial");
+    let highScore = 0;
+    try {
+      const storedHighScore = Number(window.localStorage.getItem(HIGH_SCORE_STORAGE_KEY));
+      highScore = Number.isFinite(storedHighScore) ? Math.max(0, Math.round(storedHighScore)) : 0;
+    } catch {
+      highScore = 0;
+    }
 
     const boot = async () => {
       const [PIXI, { createVoidforgePostFx }] = await Promise.all([
@@ -1016,11 +1069,13 @@ export function VoidforgeGame() {
       let microDetailEnabled = false;
       let renderHeadroom = 1;
       const radarHistory = new Map<number, { x: number; y: number }>();
-      let score = 0;
-      let lives: number = RULES.playerLives;
+      let arcadeRun = createArcadeRunState({ lives: RULES.playerLives });
       let charges = 0;
       let zone = 1;
       let pieces = 0;
+      let fieldElapsed = 0;
+      let hullLostTimer = 0;
+      let scoringLocked = false;
       let fireCooldown = 0;
       let novaCooldown = 0;
       let respawnSentinelTimer = 5;
@@ -1092,6 +1147,50 @@ export function VoidforgeGame() {
         }, 2850);
         timers.add(timer);
       };
+
+      const persistHighScore = () => {
+        if (arcadeRun.score <= highScore) return;
+        highScore = arcadeRun.score;
+        if (!highScorePersistenceEnabled) return;
+        try {
+          window.localStorage.setItem(HIGH_SCORE_STORAGE_KEY, String(highScore));
+        } catch {
+          // Storage can be unavailable in hardened/private browser contexts; the run stays playable.
+        }
+      };
+
+      const announceExtraHulls = (count: number) => {
+        if (count <= 0) return;
+        const key = Date.now() + Math.floor(rng() * 10_000);
+        setExtraHullAlert({ count, key });
+        audio.crystal(0);
+        const timer = window.setTimeout(() => {
+          setExtraHullAlert((current) => current?.key === key ? null : current);
+          timers.delete(timer);
+        }, 2600);
+        timers.add(timer);
+      };
+
+      const commitArcadeAward = <T extends { state: typeof arcadeRun; breakdown: { extraHullsAwarded: number } }>(result: T) => {
+        arcadeRun = result.state;
+        persistHighScore();
+        announceExtraHulls(result.breakdown.extraHullsAwarded);
+        return result.breakdown;
+      };
+
+      const awardAction = (basePoints: number) => {
+        if (scoringLocked || hullLostTimer > 0) return null;
+        return commitArcadeAward(awardScoreAction(arcadeRun, basePoints));
+      };
+
+      const awardFlat = (points: number) => {
+        if (scoringLocked || hullLostTimer > 0) return null;
+        return commitArcadeAward(addPersistentScore(arcadeRun, points));
+      };
+
+      const awardClearBonus = (seconds: number) => (
+        commitArcadeAward(awardArenaClearBonus(arcadeRun, seconds))
+      );
 
       const applyTutorialEvent = (event: TutorialEvent) => {
         if (!tutorialActiveRef.current) return;
@@ -2377,12 +2476,20 @@ export function VoidforgeGame() {
       const resetWorld = (resetScore = true) => {
         clearWorld();
         if (resetScore) {
-          score = 0;
-          lives = RULES.playerLives;
+          arcadeRun = createArcadeRunState({ lives: RULES.playerLives });
           charges = 0;
           zone = 1;
+        } else {
+          arcadeRun = {
+            ...arcadeRun,
+            multiplier: INITIAL_MULTIPLIER,
+            chainSecondsRemaining: 0,
+          };
         }
         pieces = 0;
+        fieldElapsed = 0;
+        hullLostTimer = 0;
+        scoringLocked = false;
         victoryTimer = 0;
         holdShowcase = false;
         showcaseFrozen = false;
@@ -2415,6 +2522,8 @@ export function VoidforgeGame() {
         cameraZoom = 1;
         audio.setMusicIntensity(0.08);
         syncEngineParts();
+        setRunPhase({ kind: "active" });
+        setExtraHullAlert(null);
       };
 
       const activateEngine = () => {
@@ -2481,8 +2590,40 @@ export function VoidforgeGame() {
         engine.disruptionAge = -1;
         engine.disruptionWave.clear();
         activationPulse = localReducedFx ? 0 : 0.72;
-        score += 10000;
-        victoryTimer = holdShowcase ? 999 : 5.5;
+        resetTouchInput(touchInputRef.current);
+        const coreAward = awardAction(10_000);
+        if (!holdShowcase) {
+          const clearAward = awardClearBonus(fieldElapsed);
+          arcadeRun = {
+            ...arcadeRun,
+            multiplier: INITIAL_MULTIPLIER,
+            chainSecondsRemaining: 0,
+          };
+          setRunPhase({
+            kind: "arena-clear",
+            field: zone,
+            elapsedSeconds: clearAward.wholeSeconds,
+            corePoints: coreAward?.pointsAwarded ?? 0,
+            timeBonus: clearAward.timeBonus,
+            hullBonus: clearAward.hullBonus,
+            totalBonus: clearAward.totalBonus,
+            totalScore: arcadeRun.score,
+            extraHullsAwarded: (coreAward?.extraHullsAwarded ?? 0) + clearAward.extraHullsAwarded,
+          });
+        } else {
+          arcadeRun = {
+            ...arcadeRun,
+            multiplier: INITIAL_MULTIPLIER,
+            chainSecondsRemaining: 0,
+          };
+          setRunPhase({ kind: "active" });
+        }
+        scoringLocked = true;
+        player.invulnerable = Math.max(player.invulnerable, ARENA_CLEAR_SECONDS + 1);
+        for (const projectile of projectiles) {
+          if (projectile.kind === "bolt") projectile.dead = true;
+        }
+        victoryTimer = holdShowcase ? 999 : ARENA_CLEAR_SECONDS;
         shake = localReducedFx ? 10 : 48;
         audio.setMusicIntensity(0);
         audio.explosion(1, panFor(engine.x));
@@ -2526,8 +2667,8 @@ export function VoidforgeGame() {
       const killPlayer = () => {
         if (player.invulnerable > 0 || localMode !== "playing") return;
         resetTouchInput(touchInputRef.current);
-        lives -= 1;
-        player.invulnerable = 2.8;
+        arcadeRun = loseHull(arcadeRun);
+        player.invulnerable = HULL_LOST_SECONDS + RESPAWN_PROTECTION_SECONDS;
         player.vx = 0;
         player.vy = 0;
         shake = Math.max(shake, localReducedFx ? 8 : 28);
@@ -2537,21 +2678,26 @@ export function VoidforgeGame() {
         spawnBurst(player.x, player.y, 0xff7844, 38, 0.9);
         spawnWreckage(player.x, player.y, 0x65eaff, 32, 7, 3.8);
         audio.playerDeath();
-        if (lives <= 0) {
+        if (arcadeRun.lives <= 0) {
           cancelVoice();
           engine.disruptionChargeRemaining = -1;
           engine.disruptionAge = -1;
           engine.disruptionWave.clear();
+          scoringLocked = true;
+          hullLostTimer = 0;
+          setRunPhase({ kind: "active" });
+          setExtraHullAlert(null);
           localMode = "gameover";
           setScreenMode("gameover");
           audio.setEngineThrust(0);
           audio.setMusicIntensity(0);
           notify("VESPER SIGNAL LOST", true);
         } else {
+          hullLostTimer = HULL_LOST_SECONDS;
+          setRunPhase({ kind: "hull-lost", lives: arcadeRun.lives, charges });
           player.x = 4200;
           player.y = 3050;
           player.view.position.set(player.x, player.y);
-          notify("VESPER RECONSTITUTED");
         }
       };
 
@@ -2614,7 +2760,12 @@ export function VoidforgeGame() {
                 ? "FABRICATOR TRANSIT"
                 : nearbyThreats >= 3 ? "WARRIOR SWARM" : "MINE FLUX";
         setHud({
-          score, lives, charges, zone, pieces, engineHealth: engine.health,
+          score: arcadeRun.score,
+          highScore,
+          multiplier: arcadeRun.multiplier,
+          chainSecondsRemaining: arcadeRun.chainSecondsRemaining,
+          lives: arcadeRun.lives,
+          charges, zone, pieces, engineHealth: engine.health,
           engineActive: engine.active, contacts, threatLevel, tacticalStatus,
         });
       };
@@ -2728,7 +2879,7 @@ export function VoidforgeGame() {
             fabricator.view.position.set(fabricator.x, fabricator.y);
           });
         }
-        if (["combat", "pursuit", "bombardment", "destruction"].includes(scene)) {
+        if (["combat", "pursuit", "bombardment", "destruction", "arena-clear"].includes(scene)) {
           for (let index = sentinels.length; index < 11; index += 1) {
             spawnSentinel(player.x, player.y);
           }
@@ -2756,7 +2907,7 @@ export function VoidforgeGame() {
             }
           });
         }
-        if (["pursuit", "bombardment", "destruction"].includes(scene)) {
+        if (["pursuit", "bombardment", "destruction", "arena-clear"].includes(scene)) {
           pieces = RULES.enginePieces;
           activateEngine();
           engine.awakeningRemaining = 0;
@@ -2788,12 +2939,22 @@ export function VoidforgeGame() {
           destroyEngine();
           sentinels.forEach((sentinel) => { sentinel.dead = true; sentinel.view.visible = false; });
         }
+        if (scene === "arena-clear") {
+          engine.health = 0;
+          destroyEngine();
+          sentinels.forEach((sentinel) => { sentinel.dead = true; sentinel.view.visible = false; });
+        }
+        if (scene === "hull-lost") {
+          player.invulnerable = 0;
+          killPlayer();
+        }
         if (scene === "gameover") {
-          lives = 0;
+          arcadeRun = { ...arcadeRun, lives: 0 };
+          scoringLocked = true;
           localMode = "gameover";
           setScreenMode("gameover");
         }
-        if (["exploration", "mining", "construction", "combat", "bombardment", "gameover"].includes(scene)) setNotice(null);
+        if (["exploration", "mining", "construction", "combat", "bombardment", "hull-lost", "arena-clear", "gameover"].includes(scene)) setNotice(null);
         cameraX = player.x;
         cameraY = player.y;
         cameraZoom = engine.active && !engine.destroyed ? 0.8 : 0.91;
@@ -2866,6 +3027,23 @@ export function VoidforgeGame() {
         player.invulnerable = Math.max(0, player.invulnerable - dt);
         const visualPulse = audio.getVisualPulse(motionClock);
 
+        if (hullLostTimer > 0) {
+          hullLostTimer = Math.max(0, hullLostTimer - dt);
+          audio.setEngineThrust(0);
+          if (hullLostTimer === 0) {
+            player.invulnerable = RESPAWN_PROTECTION_SECONDS;
+            setRunPhase({ kind: "active" });
+            notify("VESPER RECONSTITUTED · 2.0s SHIELD");
+            refreshHud();
+          }
+          return;
+        }
+
+        if (!engine.destroyed) {
+          arcadeRun = advanceScoreChain(arcadeRun, dt);
+          if (!tutorialActiveRef.current) fieldElapsed += dt;
+        }
+
         let inputX = 0;
         let inputY = 0;
         if (keys.has("ArrowLeft") || keys.has("KeyA")) inputX -= 1;
@@ -2900,6 +3078,14 @@ export function VoidforgeGame() {
           padBomb = (pad.buttons[1]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false);
         }
         if (localMode !== "playing") return;
+
+        const controlsLocked = engine.destroyed;
+        if (controlsLocked) {
+          inputX = 0;
+          inputY = 0;
+          aimX = 0;
+          aimY = 0;
+        }
 
         const rawMagnitude = Math.min(1, Math.hypot(inputX, inputY));
         const band = quantizeThrustMagnitude(rawMagnitude, 6);
@@ -2994,15 +3180,15 @@ export function VoidforgeGame() {
           echo.alpha = fast * (0.17 - index * 0.026) * localEffectIntensity;
           echo.scale.set(0.96 - index * 0.055);
         });
-        audio.setEngineThrust(band);
+        audio.setEngineThrust(controlsLocked ? 0 : band);
 
-        if (keys.has("Space") || padFire || touchInput.firing) launchLaser();
-        if ((keys.has("KeyC") || keys.has("ShiftLeft") || keys.has("ShiftRight")) && novaCooldown <= 0) launchNova();
-        if (padBomb && !lastGamepadBomb) launchNova();
-        if (touchInput.novaQueued) {
-          touchInput.novaQueued = false;
-          launchNova();
+        if (!controlsLocked) {
+          if (keys.has("Space") || padFire || touchInput.firing) launchLaser();
+          if ((keys.has("KeyC") || keys.has("ShiftLeft") || keys.has("ShiftRight")) && novaCooldown <= 0) launchNova();
+          if (padBomb && !lastGamepadBomb) launchNova();
+          if (touchInput.novaQueued) launchNova();
         }
+        touchInput.novaQueued = false;
         lastGamepadBomb = padBomb;
 
         for (const planetoid of planetoids) {
@@ -3040,7 +3226,7 @@ export function VoidforgeGame() {
             crystal.dead = true;
             if (tutorialTarget?.id === crystal.id) tutorialTarget = undefined;
             charges = Math.min(RULES.maxCharges, charges + 1);
-            score += 100;
+            awardAction(100);
             applyTutorialEvent("shard-collected");
             audio.crystal(panFor(crystal.x));
             spawnImpactFx(crystal.x, crystal.y, 0x69f3ff, 34, 0.32);
@@ -3468,7 +3654,7 @@ export function VoidforgeGame() {
               }
               if (result.destroyed) {
                 planetoid.dead = true;
-                score += 5;
+                awardFlat(5);
                 spawnImpactFx(planetoid.x, planetoid.y, 0xff9a58, planetoid.radius * 1.15, 0.7);
                 spawnBurst(planetoid.x, planetoid.y, 0xc4a07b, 35, 0.9);
                 spawnWreckage(planetoid.x, planetoid.y, 0xb79b7d, planetoid.radius * 0.48, 10, 7.5);
@@ -3483,7 +3669,7 @@ export function VoidforgeGame() {
                 fabricator.dead = true;
                 const wasCarrying = fabricator.carrying;
                 if (wasCarrying) spawnCrystal(fabricator.x, fabricator.y);
-                score += wasCarrying ? 250 : 150;
+                awardAction(wasCarrying ? 250 : 150);
                 spawnImpactFx(fabricator.x, fabricator.y, 0xff8a48, 68, 0.58);
                 spawnBurst(fabricator.x, fabricator.y, 0xff8a48, 26, 0.7);
                 spawnWreckage(fabricator.x, fabricator.y, 0xff8a48, 24, 6, 4.8);
@@ -3500,7 +3686,7 @@ export function VoidforgeGame() {
                 spawnBurst(sentinel.x, sentinel.y, 0x9089ff, 12, 0.45);
                 if (sentinel.health <= 0) {
                   sentinel.dead = true;
-                  score += 400;
+                  awardAction(400);
                   audio.explosion(0.45, panFor(sentinel.x));
                   spawnImpactFx(sentinel.x, sentinel.y, 0xa36cff, 84, 0.72);
                   spawnBurst(sentinel.x, sentinel.y, 0x7e8fff, 30, 0.8);
@@ -3515,7 +3701,7 @@ export function VoidforgeGame() {
             if (engine.active && !engine.destroyed && circlesOverlap(projectile, engine)) {
               projectile.dead = true;
               engine.health = Math.max(0, engine.health - 1);
-              score += 750;
+              awardAction(750);
               audio.bossHit(panFor(engine.x));
               shake = Math.max(shake, localReducedFx ? 4 : 16);
               spawnImpactFx(projectile.x, projectile.y, engine.health % 2 ? 0xff8846 : 0xb56bff, 96, 0.78);
@@ -3596,12 +3782,12 @@ export function VoidforgeGame() {
 
         respawnSentinelTimer -= dt;
         respawnFabricatorTimer -= dt;
-        if (respawnSentinelTimer <= 0 && sentinels.filter((item) => !item.dead).length < 4 + zone * 2) {
+        if (!engine.destroyed && respawnSentinelTimer <= 0 && sentinels.filter((item) => !item.dead).length < 4 + zone * 2) {
           const angle = rng() * Math.PI * 2;
           spawnSentinel(player.x + Math.cos(angle) * 1300, player.y + Math.sin(angle) * 1300);
           respawnSentinelTimer = 4.5 + rng() * 4;
         }
-        if (respawnFabricatorTimer <= 0 && fabricators.filter((item) => !item.dead).length < 5 + zone) {
+        if (!engine.destroyed && respawnFabricatorTimer <= 0 && fabricators.filter((item) => !item.dead).length < 5 + zone) {
           const angle = rng() * Math.PI * 2;
           spawnFabricator(engine.x + Math.cos(angle) * 650, engine.y + Math.sin(angle) * 650);
           respawnFabricatorTimer = 7 + rng() * 5;
@@ -3614,13 +3800,7 @@ export function VoidforgeGame() {
           }
           if (victoryTimer <= 0 && !holdShowcase) {
             zone += 1;
-            const savedScore = score;
-            const savedLives = lives;
-            const savedCharges = charges;
             resetWorld(false);
-            score = savedScore;
-            lives = savedLives;
-            charges = savedCharges;
             notify(`FIELD 0${zone} · PRESSURE FRONT`);
           }
         }
@@ -4215,7 +4395,7 @@ export function VoidforgeGame() {
                     {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
                   </button>
                 )}
-                <span className="version-mark">Vesper flight core<br />build 01.31</span>
+                <span className="version-mark">Vesper flight core · build 01.32<br />High score {formatScore(hud.highScore)}</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -4227,7 +4407,7 @@ export function VoidforgeGame() {
 
         {screenMode !== "title" && <HeadsUpDisplay hud={hud} />}
 
-        {touchCapable && screenMode === "playing" && !helpOpen && (
+        {touchCapable && screenMode === "playing" && runPhase.kind === "active" && !helpOpen && (
           <section className="touch-controls" aria-label="Touch flight controls" key={touchResetKey}>
             <TouchStick
               label="Thrust"
@@ -4266,7 +4446,7 @@ export function VoidforgeGame() {
           </section>
         )}
 
-        {tutorialStep && screenMode === "playing" && !helpOpen && !notice && (
+        {tutorialStep && screenMode === "playing" && runPhase.kind === "active" && !helpOpen && !notice && (
           <TutorialCoachmark
             step={tutorialStep}
             touchCapable={touchCapable}
@@ -4278,6 +4458,51 @@ export function VoidforgeGame() {
         {notice && (
           <div className={`center-alert ${notice.danger ? "danger" : ""}`} key={notice.key} aria-hidden="true">
             {notice.text}
+          </div>
+        )}
+
+        {screenMode === "playing" && runPhase.kind === "active" && extraHullAlert && (
+          <div className="extra-hull-slot" role="status" aria-live="polite" key={extraHullAlert.key}>
+            <span className="extra-hull-alert">
+              {extraHullAlert.count === 1 ? "Extra hull awarded" : `${extraHullAlert.count} extra hulls awarded`}
+            </span>
+          </div>
+        )}
+
+        {screenMode === "playing" && runPhase.kind === "hull-lost" && (
+          <div className="run-phase-overlay">
+            <section className="run-phase-panel" aria-label="Hull lost" aria-live="assertive">
+              <p className="eyebrow">Signal interrupted</p>
+              <h2>Hull Lost</h2>
+              <p>Vesper is reconstituting in a safe pocket. Your score and Nova inventory are preserved.</p>
+              <div className="phase-score-breakdown" aria-label="Run inventory after hull loss">
+                <div className="phase-bonus-row"><span>Hulls remaining</span><strong>{runPhase.lives}</strong></div>
+                <div className="phase-bonus-row"><span>Nova charges</span><strong>{runPhase.charges.toString().padStart(2, "0")}</strong></div>
+                <div className="phase-bonus-row"><span>Chain status</span><strong>Reset · 1.00×</strong></div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {screenMode === "playing" && runPhase.kind === "arena-clear" && (
+          <div className="run-phase-overlay">
+            <section className="run-phase-panel" aria-label={`Field ${runPhase.field} clear`} aria-live="assertive">
+              <p className="eyebrow">Dread signal ruptured</p>
+              <h2>Arena Clear</h2>
+              <p>Field {runPhase.field.toString().padStart(2, "0")} is secure. Vesper is plotting the next pressure front.</p>
+              <div className="phase-score-breakdown" aria-label="Arena clear score breakdown">
+                <div className="phase-bonus-row"><span>Core rupture</span><strong>+{formatScore(runPhase.corePoints)}</strong></div>
+                <div className="phase-bonus-row"><span>Clear time · {runPhase.elapsedSeconds}s</span><strong>+{formatScore(runPhase.timeBonus)}</strong></div>
+                <div className="phase-bonus-row"><span>Remaining hulls</span><strong>+{formatScore(runPhase.hullBonus)}</strong></div>
+                <div className="phase-bonus-row"><span>Field bonus</span><strong>+{formatScore(runPhase.totalBonus)}</strong></div>
+                <div className="phase-bonus-row"><span>Run total</span><strong>{formatScore(runPhase.totalScore)}</strong></div>
+              </div>
+              {runPhase.extraHullsAwarded > 0 && (
+                <div className="extra-hull-alert">
+                  {runPhase.extraHullsAwarded === 1 ? "Extra hull awarded" : `${runPhase.extraHullsAwarded} extra hulls awarded`}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
@@ -4297,7 +4522,7 @@ export function VoidforgeGame() {
             <section className="gameover-panel" aria-label="Game over">
               <p className="eyebrow">Transmission terminated</p>
               <h2>Signal Lost</h2>
-              <p>Final score {formatScore(hud.score)}. The Dread Engine continues its assembly.</p>
+              <p>Final score {formatScore(hud.score)} · high score {formatScore(hud.highScore)}. The Dread Engine continues its assembly.</p>
               <button className="primary-action" data-testid="restart-game" onClick={() => gameApiRef.current.restart()}>
                 Reconstitute Vesper
               </button>
@@ -4338,9 +4563,12 @@ export function VoidforgeGame() {
               <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
               <div><h3>Touch targeting</h3><p>Drag the right stick to aim independently and hold it to fire. Tap Nova for a single homing charge; Pause opens every display option.</p></div>
               <div><h3>Mine carefully</h3><p>Hold fire to cut Flux from planetoids. Short controlled bursts preserve the rock and extract more crystals.</p></div>
+              <div><h3>Build the chain</h3><p>Score again within 4.5 seconds to raise the multiplier by 0.25×, up to 5.00×. Losing a hull resets it.</p></div>
+              <div><h3>Earn extra hulls</h3><p>Your first extra hull arrives at 25,000 points, then every 50,000 points. Vesper can carry up to five hulls.</p></div>
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
               <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
               <div><h3>Break the wave</h3><p>You keep control while the Engine awakens. When DISRUPTION CHARGE appears, thrust beyond the segmented ring before it expands.</p></div>
+              <div><h3>Clear the arena</h3><p>Rupture the core quickly and preserve hulls for a field-clear bonus. Score, hulls, charges, and high score carry into the next field.</p></div>
               <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
               <div><h3>Accessibility</h3><p>Reduce motion or flashing, tune effects and color, increase contrast, or disable the optional flight-guide voice. Sound is the master control for game audio and voice.</p></div>
             </div>
