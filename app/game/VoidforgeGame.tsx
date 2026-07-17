@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import type { Application, Container, Graphics, Sprite } from "pixi.js";
 import { VoidforgeAudio } from "./audio";
 import {
@@ -50,11 +54,47 @@ import {
   resolveAttractTimeline,
 } from "./attract-mode.mjs";
 import { getFieldProgressionProfile } from "./field-progression.mjs";
+import {
+  SENTINEL_ATTACK_PHASES,
+  SENTINEL_ROLES,
+  advanceSentinelBehavior,
+  createSentinelBehaviorState,
+  selectSentinelRole,
+  sentinelPhaseProgress,
+} from "./sentinel-behavior.mjs";
+import {
+  DEFAULT_INPUT_SETTINGS,
+  INPUT_SETTINGS_STORAGE_KEY,
+  KEYBOARD_ACTIONS,
+  KEYBOARD_ACTION_LABELS,
+  applyGamepadDeadZone,
+  createInputState,
+  findFirstConnectedGamepad,
+  getKeyDisplayLabel,
+  isRebindableKeyCode,
+  rebindKeyboardKey,
+  reduceInputState,
+  sanitizeInputSettings,
+} from "./input-settings.mjs";
 
 type ScreenMode = "title" | "attract" | "playing" | "paused" | "gameover";
 type AttractPhase = "mining" | "construction" | "pursuit" | "disruption";
 type ContactKind = "worker" | "warrior" | "boss";
 type ColorMode = "standard" | "deuteranopia" | "protanopia" | "tritanopia";
+type SentinelRole = "intercept" | "guard" | "pressure";
+type SentinelAttackPhase = "approach" | "charge" | "burst" | "breakaway";
+type PrimaryFireMode = "hold" | "toggle";
+type KeyboardAction =
+  | "moveUp"
+  | "moveDown"
+  | "moveLeft"
+  | "moveRight"
+  | "primaryFire"
+  | "nova"
+  | "pause"
+  | "mute"
+  | "restart"
+  | "confirm";
 type TutorialStep = "move" | "mine" | "collect" | "threat";
 type TutorialEvent = "player-thrusted" | "shard-extracted" | "shard-collected" | "acknowledge" | "skip";
 type RunPhaseState =
@@ -76,6 +116,14 @@ const HIGH_SCORE_STORAGE_KEY = "voidforge-high-score-v1";
 const HULL_LOST_SECONDS = 1.25;
 const RESPAWN_PROTECTION_SECONDS = 2;
 const ARENA_CLEAR_SECONDS = 5.5;
+const HELP_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 interface RadarContact {
   id: number;
@@ -124,6 +172,28 @@ interface GameApi {
   setHighContrast: (enabled: boolean) => void;
   setColorMode: (mode: ColorMode) => void;
 }
+
+interface InputSettings {
+  keyboardBindings: Record<KeyboardAction, readonly string[]>;
+  gamepadDeadZone: number;
+  primaryFireMode: PrimaryFireMode;
+}
+
+interface BindingCapture {
+  action: KeyboardAction;
+  slotIndex: number;
+}
+
+type RoutedInputState = Readonly<{
+  firePressed: boolean;
+  novaPressed: boolean;
+  fireLatched: boolean;
+  fireActive: boolean;
+  fireTriggered: boolean;
+  novaTriggered: boolean;
+  controlsLocked: boolean;
+  primaryFireMode: PrimaryFireMode;
+}>;
 
 interface TutorialRuntime {
   step: TutorialStep | "complete";
@@ -218,9 +288,15 @@ interface Fabricator extends Entity {
 }
 
 interface Sentinel extends Entity {
-  fireTimer: number;
   orbit: number;
   health: number;
+  role: SentinelRole;
+  behavior: {
+    phase: SentinelAttackPhase;
+    phaseSecondsRemaining: number;
+    burstShotsFired: number;
+    shotSecondsRemaining: number;
+  };
   damageLayer: Graphics;
   hull: Container;
   shield: Graphics;
@@ -529,7 +605,39 @@ function blendColor(base: number, accent: number, weight: number) {
   return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 
-function MissionBriefing() {
+function getTutorialInstruction(
+  step: TutorialStep,
+  touchCapable: boolean,
+  movementBindingLabel: string,
+  primaryFireBindingLabel: string,
+  primaryFireMode: PrimaryFireMode,
+) {
+  if (touchCapable) {
+    if (step === "mine") {
+      return primaryFireMode === "toggle"
+        ? "Drag AIM toward the glowing cracks; engaging the stick toggles fire. Short bursts extract more Flux."
+        : "Drag AIM toward the glowing cracks and hold to fire. Short bursts extract more Flux.";
+    }
+    return TUTORIAL_COPY[step].touch;
+  }
+  if (step === "move") {
+    return `Use ${movementBindingLabel} or the left gamepad stick to fly toward a cracked planetoid.`;
+  }
+  if (step === "mine") {
+    return `Face a cracked planetoid and fire with ${primaryFireBindingLabel} or the gamepad. Short bursts extract more Flux.`;
+  }
+  return TUTORIAL_COPY[step].desktop;
+}
+
+function MissionBriefing({
+  movementBindingLabel,
+  primaryFireBindingLabel,
+  novaBindingLabel,
+}: {
+  movementBindingLabel: string;
+  primaryFireBindingLabel: string;
+  novaBindingLabel: string;
+}) {
   const items = [
     ["Mine", "Cut Flux Shards from volatile planetoids."],
     ["Deny", "Intercept Fabricators before they complete the Engine."],
@@ -549,9 +657,9 @@ function MissionBriefing() {
           </div>
         ))}
         <div className="control-strip" aria-label="Controls summary">
-          <span><span className="keycap">WASD</span>Thrust</span>
-          <span><span className="keycap">SPACE</span>Laser</span>
-          <span><span className="keycap">C</span>Nova</span>
+          <span><span className="keycap">{movementBindingLabel}</span>Thrust</span>
+          <span><span className="keycap">{primaryFireBindingLabel}</span>Laser</span>
+          <span><span className="keycap">{novaBindingLabel}</span>Nova</span>
           <span><span className="keycap">TOUCH</span>Twin-stick</span>
         </div>
       </div>
@@ -561,18 +669,17 @@ function MissionBriefing() {
 
 function TutorialCoachmark({
   step,
-  touchCapable,
+  instruction,
   onSkip,
   onComplete,
 }: {
   step: TutorialStep;
-  touchCapable: boolean;
+  instruction: string;
   onSkip: () => void;
   onComplete: () => void;
 }) {
   const copy = TUTORIAL_COPY[step];
   const stepIndex = TUTORIAL_STEPS.indexOf(step);
-  const instruction = touchCapable ? copy.touch : copy.desktop;
   return (
     <section
       className={`tutorial-panel tutorial-${step}`}
@@ -719,6 +826,13 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
 export function VoidforgeGame() {
   const mountRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLElement>(null);
+  const helpDialogRef = useRef<HTMLElement>(null);
+  const helpCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const helpUtilityButtonRef = useRef<HTMLButtonElement>(null);
+  const pauseSettingsButtonRef = useRef<HTMLButtonElement>(null);
+  const helpOpenerRef = useRef<HTMLElement | null>(null);
+  const helpWasOpenRef = useRef(false);
+  const helpReturnsToGameRef = useRef(false);
   const gameApiRef = useRef<GameApi>(EMPTY_API);
   const touchInputRef = useRef<TouchInputState>(createTouchInput());
   const tutorialRuntimeRef = useRef<TutorialRuntime>(createTutorialState() as TutorialRuntime);
@@ -732,6 +846,8 @@ export function VoidforgeGame() {
   const effectIntensityRef = useRef(1);
   const highContrastRef = useRef(false);
   const colorModeRef = useRef<ColorMode>("standard");
+  const inputSettingsRef = useRef<InputSettings>(DEFAULT_INPUT_SETTINGS as InputSettings);
+  const bindingCaptureRef = useRef<BindingCapture | null>(null);
   const [ready, setReady] = useState(false);
   const [screenMode, setScreenMode] = useState<ScreenMode>("title");
   const [attractPhase, setAttractPhase] = useState<AttractPhase>("mining");
@@ -753,6 +869,9 @@ export function VoidforgeGame() {
   const [touchResetKey, setTouchResetKey] = useState(0);
   const [tutorialStep, setTutorialStep] = useState<TutorialStep | null>(null);
   const [tutorialRecommended, setTutorialRecommended] = useState(false);
+  const [inputSettings, setInputSettings] = useState<InputSettings>(DEFAULT_INPUT_SETTINGS as InputSettings);
+  const [bindingCapture, setBindingCapture] = useState<BindingCapture | null>(null);
+  const [controlSettingStatus, setControlSettingStatus] = useState("Select a keycap to rebind it. Conflicts swap automatically.");
 
   useEffect(() => {
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -763,6 +882,13 @@ export function VoidforgeGame() {
     const storedIntensity = Number(window.localStorage.getItem("voidforge-effect-intensity"));
     const storedColorMode = window.localStorage.getItem("voidforge-color-mode");
     const storedContrast = window.localStorage.getItem("voidforge-high-contrast") === "true";
+    let storedInputSettings: unknown = null;
+    try {
+      const serializedInputSettings = window.localStorage.getItem(INPUT_SETTINGS_STORAGE_KEY);
+      storedInputSettings = serializedInputSettings === null ? null : JSON.parse(serializedInputSettings);
+    } catch {
+      storedInputSettings = null;
+    }
     const speechAvailable = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
     const params = new URLSearchParams(window.location.search);
     const tutorialMode = resolveTutorialMode({
@@ -783,6 +909,7 @@ export function VoidforgeGame() {
       setColorMode(storedColorMode as ColorMode);
     }
     setHighContrast(storedContrast);
+    setInputSettings(sanitizeInputSettings(storedInputSettings) as InputSettings);
     setTutorialRecommended(tutorialMode.enabled);
   }, []);
 
@@ -849,6 +976,50 @@ export function VoidforgeGame() {
   useEffect(() => {
     helpOpenRef.current = helpOpen;
   }, [helpOpen]);
+
+  useEffect(() => {
+    let focusFrame = 0;
+    if (helpOpen) {
+      helpWasOpenRef.current = true;
+      focusFrame = window.requestAnimationFrame(() => {
+        helpCloseButtonRef.current?.focus({ preventScroll: true });
+      });
+    } else if (helpWasOpenRef.current) {
+      helpWasOpenRef.current = false;
+      const returnToGame = helpReturnsToGameRef.current;
+      helpReturnsToGameRef.current = false;
+      focusFrame = window.requestAnimationFrame(() => {
+        const opener = helpOpenerRef.current;
+        const fallbackCanvas = mountRef.current?.querySelector<HTMLCanvasElement>("canvas") ?? null;
+        const candidates = returnToGame
+          ? [fallbackCanvas]
+          : [
+              opener,
+              helpUtilityButtonRef.current,
+              pauseSettingsButtonRef.current,
+              fallbackCanvas,
+            ];
+        const focusTarget = candidates.find((candidate) => (
+          candidate !== null
+          && candidate.isConnected
+          && candidate.getClientRects().length > 0
+          && candidate.closest("[inert]") === null
+        ));
+        focusTarget?.focus({ preventScroll: true });
+        helpOpenerRef.current = null;
+      });
+    }
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [helpOpen]);
+
+  useEffect(() => {
+    inputSettingsRef.current = inputSettings;
+    window.localStorage.setItem(INPUT_SETTINGS_STORAGE_KEY, JSON.stringify(inputSettings));
+  }, [inputSettings]);
+
+  useEffect(() => {
+    bindingCaptureRef.current = bindingCapture;
+  }, [bindingCapture]);
 
   useEffect(() => {
     const host = mountRef.current;
@@ -1150,9 +1321,12 @@ export function VoidforgeGame() {
       let cameraY = RULES.worldHeight * 0.5;
       let cameraZoom = 1;
       let shake = 0;
-      let lastGamepadBomb = false;
       let lastGamepadPause = false;
       let lastGamepadConfirm = false;
+      let routedInputState = createInputState(
+        inputSettingsRef.current.primaryFireMode,
+      ) as RoutedInputState;
+      let suppressPressedInputEdges = true;
       let victoryTimer = 0;
       let holdShowcase = false;
       let showcaseFrozen = false;
@@ -1241,7 +1415,10 @@ export function VoidforgeGame() {
         timers.add(timer);
       };
 
-      const commitArcadeAward = <T extends { state: typeof arcadeRun; breakdown: { extraHullsAwarded: number } }>(result: T) => {
+      const commitArcadeAward = <TBreakdown extends { extraHullsAwarded: number }>(result: {
+        state: typeof arcadeRun;
+        breakdown: TBreakdown;
+      }): TBreakdown => {
         arcadeRun = result.state;
         persistHighScore();
         announceExtraHulls(result.breakdown.extraHullsAwarded);
@@ -2132,7 +2309,8 @@ export function VoidforgeGame() {
         enemyLayer.addChild(view);
         sentinels.push({
           id: nextId(), x, y, vx: 0, vy: 0, radius: 27, view,
-          fireTimer: 0.5 + rng() * 1.5, orbit: rng() < 0.5 ? -1 : 1, health: 2,
+          orbit: rng() < 0.5 ? -1 : 1, health: 2, role: SENTINEL_ROLES.PRESSURE,
+          behavior: createSentinelBehaviorState({ phaseSecondsRemaining: 0.18 + rng() * 0.72 }),
           hull, damageLayer, shield, weaponCore, engineFlare, phase: rng() * Math.PI * 2,
           chargeMarks, shotPulse: 0,
         });
@@ -2624,7 +2802,8 @@ export function VoidforgeGame() {
         motionClock = 0;
         activationPulse = 0;
         shake = 0;
-        lastGamepadBomb = false;
+        routedInputState = createInputState(inputSettingsRef.current.primaryFireMode);
+        suppressPressedInputEdges = true;
         shockwaveAge = 99;
         shockwaveForce = 0;
         player = createPlayer();
@@ -2799,6 +2978,8 @@ export function VoidforgeGame() {
       const killPlayer = () => {
         if (player.invulnerable > 0 || localMode !== "playing") return;
         resetTouchInput(touchInputRef.current);
+        routedInputState = createInputState(inputSettingsRef.current.primaryFireMode);
+        suppressPressedInputEdges = true;
         arcadeRun = loseHull(arcadeRun);
         player.invulnerable = HULL_LOST_SECONDS + RESPAWN_PROTECTION_SECONDS;
         player.vx = 0;
@@ -3060,6 +3241,8 @@ export function VoidforgeGame() {
 
       const togglePause = () => {
         resetTouchInput(touchInputRef.current);
+        routedInputState = createInputState(inputSettingsRef.current.primaryFireMode);
+        suppressPressedInputEdges = true;
         if (localMode === "playing") {
           cancelVoice();
           localMode = "paused";
@@ -3244,17 +3427,44 @@ export function VoidforgeGame() {
         wreckage = sweep(wreckage);
       };
 
+      const keyboardActionPressed = (action: KeyboardAction) => (
+        inputSettingsRef.current.keyboardBindings[action].some((code) => keys.has(code))
+      );
+      const keyboardCodeMatches = (action: KeyboardAction, code: string) => (
+        inputSettingsRef.current.keyboardBindings[action].includes(code)
+      );
+      const activeGamepad = () => findFirstConnectedGamepad(navigator.getGamepads?.()) as Gamepad | null;
+
       const pollGamepadMeta = () => {
-        const pad = navigator.getGamepads?.()[0];
+        const pad = activeGamepad();
         const pausePressed = pad?.buttons[9]?.pressed ?? false;
         const confirmPressed = pad?.buttons[0]?.pressed ?? false;
+        const takeoverMove = applyGamepadDeadZone(
+          pad?.axes[0] ?? 0,
+          pad?.axes[1] ?? 0,
+          inputSettingsRef.current.gamepadDeadZone,
+        );
+        const takeoverAim = applyGamepadDeadZone(
+          pad?.axes[2] ?? 0,
+          pad?.axes[3] ?? 0,
+          inputSettingsRef.current.gamepadDeadZone,
+        );
         const takeoverPressed = Boolean(pad) && (
           confirmPressed
           || (pad?.buttons[1]?.pressed ?? false)
           || (pad?.buttons[2]?.pressed ?? false)
-          || Math.hypot(pad?.axes[0] ?? 0, pad?.axes[1] ?? 0) > 0.24
-          || Math.hypot(pad?.axes[2] ?? 0, pad?.axes[3] ?? 0) > 0.24
+          || takeoverMove.magnitude > 0.08
+          || takeoverAim.magnitude > 0.08
         );
+        if (helpOpenRef.current) {
+          if (pausePressed && !lastGamepadPause) {
+            setBindingCapture(null);
+            setHelpOpen(false);
+          }
+          lastGamepadPause = pausePressed;
+          lastGamepadConfirm = confirmPressed;
+          return;
+        }
         if (localMode === "attract" && (takeoverPressed || pausePressed)) {
           startGame("disable");
           lastGamepadPause = pausePressed;
@@ -3298,10 +3508,10 @@ export function VoidforgeGame() {
 
         let inputX = 0;
         let inputY = 0;
-        if (keys.has("ArrowLeft") || keys.has("KeyA")) inputX -= 1;
-        if (keys.has("ArrowRight") || keys.has("KeyD")) inputX += 1;
-        if (keys.has("ArrowUp") || keys.has("KeyW")) inputY -= 1;
-        if (keys.has("ArrowDown") || keys.has("KeyS")) inputY += 1;
+        if (keyboardActionPressed("moveLeft")) inputX -= 1;
+        if (keyboardActionPressed("moveRight")) inputX += 1;
+        if (keyboardActionPressed("moveUp")) inputY -= 1;
+        if (keyboardActionPressed("moveDown")) inputY += 1;
 
         const touchInput = touchInputRef.current;
         const touchMoveMagnitude = Math.hypot(touchInput.moveX, touchInput.moveY);
@@ -3310,7 +3520,7 @@ export function VoidforgeGame() {
           inputY = touchInput.moveY;
         }
 
-        const pad = navigator.getGamepads?.()[0];
+        const pad = activeGamepad();
         let padFire = false;
         let padBomb = false;
         let attractFire = false;
@@ -3318,12 +3528,20 @@ export function VoidforgeGame() {
         let aimX = touchInput.aimX;
         let aimY = touchInput.aimY;
         if (pad) {
-          const padMove = normalizeControlVector(pad.axes[0] ?? 0, pad.axes[1] ?? 0, 1, 0.12);
+          const padMove = applyGamepadDeadZone(
+            pad.axes[0] ?? 0,
+            pad.axes[1] ?? 0,
+            inputSettingsRef.current.gamepadDeadZone,
+          );
           if (padMove.magnitude > Math.hypot(inputX, inputY)) {
             inputX = padMove.x;
             inputY = padMove.y;
           }
-          const padAim = normalizeControlVector(pad.axes[2] ?? 0, pad.axes[3] ?? 0, 1, 0.16);
+          const padAim = applyGamepadDeadZone(
+            pad.axes[2] ?? 0,
+            pad.axes[3] ?? 0,
+            inputSettingsRef.current.gamepadDeadZone,
+          );
           if (padAim.magnitude > Math.hypot(aimX, aimY)) {
             aimX = padAim.x;
             aimY = padAim.y;
@@ -3490,15 +3708,22 @@ export function VoidforgeGame() {
         });
         audio.setEngineThrust(controlsLocked ? 0 : band);
 
+        const firePressed = keyboardActionPressed("primaryFire") || padFire || touchInput.firing;
+        const novaPressed = keyboardActionPressed("nova") || padBomb || touchInput.novaQueued;
+        routedInputState = reduceInputState(routedInputState, {
+          firePressed,
+          novaPressed,
+          controlsLocked: controlsLocked || localMode !== "playing" || suppressPressedInputEdges,
+          primaryFireMode: inputSettingsRef.current.primaryFireMode,
+        });
+        if (suppressPressedInputEdges && !firePressed && !novaPressed) {
+          suppressPressedInputEdges = false;
+        }
         if (!controlsLocked) {
-          if (keys.has("Space") || padFire || touchInput.firing || attractFire) launchLaser();
-          if ((keys.has("KeyC") || keys.has("ShiftLeft") || keys.has("ShiftRight")) && novaCooldown <= 0) launchNova();
-          if (padBomb && !lastGamepadBomb) launchNova();
-          if (touchInput.novaQueued) launchNova();
-          if (attractNova) launchNova();
+          if (routedInputState.fireActive || attractFire) launchLaser();
+          if (routedInputState.novaTriggered || attractNova) launchNova();
         }
         touchInput.novaQueued = false;
-        lastGamepadBomb = padBomb;
 
         for (const planetoid of planetoids) {
           planetoid.x += planetoid.vx * dt;
@@ -3649,50 +3874,73 @@ export function VoidforgeGame() {
         }
 
         const coordinatedSentinels = sentinels.filter((sentinel) => !sentinel.dead);
-        for (const sentinel of coordinatedSentinels) {
-          const playerDx = player.x - sentinel.x;
-          const playerDy = player.y - sentinel.y;
-          const playerDistance = Math.max(1, Math.hypot(playerDx, playerDy));
-          const interceptRoll = ((sentinel.id * 37 + zone * 17) % 101) / 100;
-          const guardRoll = ((sentinel.id * 61 + zone * 29) % 103) / 102;
-          const roleIndex = coordinatedSentinels.indexOf(sentinel);
-          const guaranteedInterceptor = (
-            fieldProfile.novaInterceptionBias > 0
-            || (localMode === "attract" && (activeAttractPhase === "pursuit" || activeAttractPhase === "disruption"))
-          ) && roleIndex === 1;
-          const guaranteedGuard = (
-            fieldProfile.guardBias > 0
-            || (localMode === "attract" && activeAttractPhase === "construction")
-          ) && roleIndex === 0;
-          const novaTarget = (guaranteedInterceptor || interceptRoll < fieldProfile.novaInterceptionBias)
-            ? nearest(sentinel, projectiles.filter((projectile) => projectile.kind === "nova" && !projectile.dead))
-            : undefined;
-          const guardTarget = !novaTarget && (guaranteedGuard || guardRoll < fieldProfile.guardBias)
-            ? nearest(sentinel, fabricators.filter((fabricator) => fabricator.carrying && !fabricator.dead))
+        const availableNovas = projectiles.filter((projectile) => projectile.kind === "nova" && !projectile.dead);
+        const loadedFabricators = fabricators.filter((fabricator) => fabricator.carrying && !fabricator.dead);
+        const constructionProgress = engine.destroyed ? 0 : engine.active ? 1 : pieces / RULES.enginePieces;
+        const attractInterception = localMode === "attract"
+          && (activeAttractPhase === "pursuit" || activeAttractPhase === "disruption");
+        const attractGuarding = localMode === "attract" && activeAttractPhase === "construction";
+        for (const [roleIndex, sentinel] of coordinatedSentinels.entries()) {
+          const nearestNova = nearest(sentinel, availableNovas);
+          sentinel.role = selectSentinelRole({
+            roleIndex,
+            sentinelCount: coordinatedSentinels.length,
+            constructionProgress,
+            guardBias: engine.destroyed ? 0 : Math.max(fieldProfile.guardBias, attractGuarding ? 0.55 : 0),
+            novaAvailable: Boolean(nearestNova),
+            novaInterceptionBias: Math.max(fieldProfile.novaInterceptionBias, attractInterception ? 0.4 : 0),
+          }) as SentinelRole;
+          const novaTarget = sentinel.role === SENTINEL_ROLES.INTERCEPT ? nearestNova : undefined;
+          const guardTarget: Entity | undefined = sentinel.role === SENTINEL_ROLES.GUARD
+            ? nearest(sentinel, loadedFabricators) ?? engine
             : undefined;
           const navigationTarget: Entity = novaTarget ?? guardTarget ?? player;
+          const attackTarget: Entity = novaTarget ?? player;
+          const attackDx = attackTarget.x - sentinel.x;
+          const attackDy = attackTarget.y - sentinel.y;
+          const attackDistance = Math.max(1, Math.hypot(attackDx, attackDy));
+          const engageRange = novaTarget ? 980 : 1450;
+          const behaviorDelta = sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.APPROACH
+            && attackDistance > engageRange
+            ? 0
+            : dt;
+          const behaviorUpdate = advanceSentinelBehavior(sentinel.behavior, behaviorDelta);
+          sentinel.behavior = behaviorUpdate.state as Sentinel["behavior"];
           const dx = navigationTarget.x - sentinel.x;
           const dy = navigationTarget.y - sentinel.y;
           const d = Math.max(1, Math.hypot(dx, dy));
           const tangentX = (-dy / d) * sentinel.orbit;
           const tangentY = (dx / d) * sentinel.orbit;
-          const desiredDistance = novaTarget ? 28 : guardTarget ? 175 : engine.active ? 560 : 720;
+          const desiredDistance = novaTarget ? 84 : guardTarget ? 170 : engine.active ? 560 : 720;
           const radial = clamp((d - desiredDistance) / Math.max(28, desiredDistance), -0.6, 1);
-          const tangentForce = novaTarget ? 32 : guardTarget ? 145 : 280;
-          const targetX = sentinel.x + (dx / d) * 360 * radial + tangentX * tangentForce;
-          const targetY = sentinel.y + (dy / d) * 360 * radial + tangentY * tangentForce;
-          steer(
-            sentinel,
-            targetX,
-            targetY,
-            (engine.active ? 290 : 235) * fieldProfile.sentinelSpeedScale,
-            dt,
-          );
+          let targetX = sentinel.x + (dx / d) * 360 * radial + tangentX * (novaTarget ? 42 : guardTarget ? 150 : 300);
+          let targetY = sentinel.y + (dy / d) * 360 * radial + tangentY * (novaTarget ? 42 : guardTarget ? 150 : 300);
+          let tacticalSpeed = (engine.active ? 290 : 235) * fieldProfile.sentinelSpeedScale;
+          if (sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.CHARGE) {
+            targetX = sentinel.x + (attackDx / attackDistance) * 80 + tangentX * 36;
+            targetY = sentinel.y + (attackDy / attackDistance) * 80 + tangentY * 36;
+            tacticalSpeed *= 0.34;
+          } else if (sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.BURST) {
+            targetX = sentinel.x + tangentX * 24;
+            targetY = sentinel.y + tangentY * 24;
+            tacticalSpeed *= 0.18;
+          } else if (sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.BREAKAWAY) {
+            targetX = sentinel.x - (attackDx / attackDistance) * 620 + tangentX * 260;
+            targetY = sentinel.y - (attackDy / attackDistance) * 620 + tangentY * 260;
+            tacticalSpeed *= 1.18;
+          }
+          steer(sentinel, targetX, targetY, tacticalSpeed, dt);
           sentinel.x += sentinel.vx * dt;
           sentinel.y += sentinel.vy * dt;
           sentinel.view.position.set(sentinel.x, sentinel.y);
-          sentinel.view.rotation = Math.atan2(playerDy, playerDx);
+          sentinel.view.rotation = Math.atan2(attackDy, attackDx);
           sentinel.shotPulse = Math.max(0, sentinel.shotPulse - dt * 6.5);
+          for (const shotEvent of behaviorUpdate.shotEvents) {
+            const spread = (shotEvent.burstIndex - 2) * 0.055;
+            const aim = Math.atan2(attackTarget.y - sentinel.y, attackTarget.x - sentinel.x) + spread;
+            spawnProjectile("bolt", sentinel.x, sentinel.y, Math.cos(aim) * 385, Math.sin(aim) * 385);
+            sentinel.shotPulse = 1;
+          }
           let bankAngle = Math.atan2(sentinel.vy, sentinel.vx) - sentinel.view.rotation;
           while (bankAngle > Math.PI) bankAngle -= Math.PI * 2;
           while (bankAngle < -Math.PI) bankAngle += Math.PI * 2;
@@ -3702,7 +3950,9 @@ export function VoidforgeGame() {
           sentinel.hull.scale.y = 1 + Math.sin(motionClock * 5.1 + sentinel.phase) * 0.018;
           sentinel.shield.visible = sentinel.health > 1;
           sentinel.shield.rotation = motionClock * 0.72 * sentinel.orbit;
-          const charge = playerDistance < 1450 ? clamp((0.42 - sentinel.fireTimer) / 0.42, 0, 1) : 0;
+          const charge = sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.CHARGE
+            ? sentinelPhaseProgress(sentinel.behavior)
+            : sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.BURST ? 1 : 0;
           sentinel.chargeMarks.alpha = charge * (localReducedFlashing ? 0.58 : 0.72 + Math.sin(motionClock * 12) * 0.2);
           sentinel.chargeMarks.scale.set(0.82 + charge * 0.22);
           sentinel.weaponCore.scale.set(0.92 + Math.sin(motionClock * 6.4 + sentinel.phase) * 0.08 + charge * 0.24);
@@ -3713,13 +3963,6 @@ export function VoidforgeGame() {
           sentinel.engineFlare.y = sentinel.health > 1 ? 0 : 4.5;
           sentinel.engineFlare.rotation = sentinel.health > 1 ? 0 : -0.08;
           sentinel.engineFlare.alpha = 0.48 + Math.sin(motionClock * 8.2 + sentinel.phase) * 0.1;
-          sentinel.fireTimer -= dt * fieldProfile.sentinelSpeedScale;
-          if (sentinel.fireTimer <= 0 && playerDistance < 1450) {
-            sentinel.fireTimer = (engine.active ? 0.82 : 1.25) + rng() * 0.7;
-            const aim = Math.atan2(playerDy, playerDx) + (rng() - 0.5) * 0.11;
-            spawnProjectile("bolt", sentinel.x, sentinel.y, Math.cos(aim) * 385, Math.sin(aim) * 385);
-            sentinel.shotPulse = 1;
-          }
         }
 
         let pursuitTargetX = player.x;
@@ -4451,7 +4694,9 @@ export function VoidforgeGame() {
           const rawY = world.position.y + sentinel.y * worldScale;
           if (rawX > 54 && rawX < width - 54 && rawY > 72 && rawY < height - 72) continue;
           const d = distance(player.x, player.y, sentinel.x, sentinel.y);
-          const charge = clamp((0.42 - sentinel.fireTimer) / 0.42, 0, 1);
+          const charge = sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.CHARGE
+            ? sentinelPhaseProgress(sentinel.behavior)
+            : sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.BURST ? 1 : 0;
           directionalThreats.push({ entity: sentinel, kind: "sentinel", priority: 2 + charge + clamp(1 - d / 1900, 0, 1), rawX, rawY });
         }
         directionalThreats.sort((a, b) => b.priority - a.priority);
@@ -4599,15 +4844,40 @@ export function VoidforgeGame() {
       });
 
       const onKeyDown = (event: KeyboardEvent) => {
-        if (event.code === "Escape" && helpOpenRef.current) {
+        const target = event.target instanceof Element ? event.target : null;
+        const pendingBinding = bindingCaptureRef.current;
+        if (pendingBinding !== null) {
           event.preventDefault();
-          setHelpOpen(false);
-          resetAttractIdle();
+          event.stopPropagation();
+          if (event.code === "Escape") {
+            setBindingCapture(null);
+            setControlSettingStatus("Binding cancelled. Existing controls preserved.");
+          } else if (!isRebindableKeyCode(event.code)) {
+            setControlSettingStatus("That browser or system key is reserved. Press another key, or Escape to cancel.");
+          } else {
+            setInputSettings((current) => rebindKeyboardKey(
+              current,
+              pendingBinding.action,
+              pendingBinding.slotIndex,
+              event.code,
+            ) as InputSettings);
+            setBindingCapture(null);
+            setControlSettingStatus(`${KEYBOARD_ACTION_LABELS[pendingBinding.action]} assigned to ${getKeyDisplayLabel(event.code)}.`);
+          }
           return;
         }
-        const target = event.target instanceof Element ? event.target : null;
+        if (helpOpenRef.current) {
+          if (event.code === "Escape") {
+            event.preventDefault();
+            setBindingCapture(null);
+            setHelpOpen(false);
+            resetAttractIdle();
+          }
+          if (!target?.closest("[role='dialog']")) resetAttractIdle();
+          return;
+        }
         const interactiveTarget = target?.closest("button, input, select, textarea, [role='dialog']");
-        if (interactiveTarget && event.code !== "Escape") {
+        if (interactiveTarget) {
           resetAttractIdle();
           return;
         }
@@ -4616,39 +4886,43 @@ export function VoidforgeGame() {
           stopAttract();
           return;
         }
-        if (
-          localMode === "attract"
-          && [
-            "Enter", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-            "KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "ShiftLeft", "ShiftRight",
-          ].includes(event.code)
-        ) {
+        const takeoverActions: readonly KeyboardAction[] = [
+          "moveUp", "moveDown", "moveLeft", "moveRight", "primaryFire", "nova", "confirm",
+        ];
+        const takeoverAction = takeoverActions.find((action) => keyboardCodeMatches(action, event.code));
+        if (localMode === "attract" && takeoverAction !== undefined) {
           event.preventDefault();
           startGame("disable");
-          if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
+          if (["moveUp", "moveDown", "moveLeft", "moveRight", "primaryFire"].includes(takeoverAction)) {
             keys.add(event.code);
           }
           return;
         }
-        if (localMode === "title" && event.code !== "Enter") resetAttractIdle();
-        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code) && localMode !== "title") {
+        if (localMode === "title" && !keyboardCodeMatches("confirm", event.code)) resetAttractIdle();
+        const boundAction = (KEYBOARD_ACTIONS as readonly KeyboardAction[])
+          .find((action) => keyboardCodeMatches(action, event.code));
+        if (boundAction !== undefined && localMode !== "title") {
           event.preventDefault();
         }
         keys.add(event.code);
         if (event.repeat) return;
-        if (event.code === "KeyM") {
+        if (keyboardCodeMatches("mute", event.code)) {
           event.preventDefault();
           setMuted((value) => !value);
         }
-        if (event.code === "KeyP" || event.code === "Escape") togglePause();
-        if (event.code === "KeyR" && localMode === "gameover") startGame();
-        if (event.code === "Enter" && localMode === "title") startGame();
+        if (keyboardCodeMatches("pause", event.code)) togglePause();
+        if (keyboardCodeMatches("restart", event.code) && localMode === "gameover") startGame();
+        if (keyboardCodeMatches("confirm", event.code) && localMode === "title") startGame();
       };
       const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
       const clearInputs = () => {
         keys.clear();
         resetTouchInput(touchInputRef.current);
-        lastGamepadBomb = false;
+        routedInputState = reduceInputState(routedInputState, {
+          reset: true,
+          primaryFireMode: inputSettingsRef.current.primaryFireMode,
+        });
+        suppressPressedInputEdges = true;
         setTouchResetKey((value) => value + 1);
       };
       const onBlur = () => {
@@ -4660,7 +4934,11 @@ export function VoidforgeGame() {
         clearInputs();
         if (document.hidden && localMode === "playing") togglePause();
       };
-      const onPageHide = () => { clearInputs(); cancelVoice(); };
+      const onPageHide = () => {
+        clearInputs();
+        cancelVoice();
+        if (localMode === "playing") togglePause();
+      };
       const onOrientationChange = () => clearInputs();
       const onPointerMove = () => resetAttractIdle();
       const onFocusIn = () => resetAttractIdle();
@@ -4784,7 +5062,9 @@ export function VoidforgeGame() {
   const updateTouchAim = (x: number, y: number, active: boolean) => {
     touchInputRef.current.aimX = x;
     touchInputRef.current.aimY = y;
-    touchInputRef.current.firing = active;
+    touchInputRef.current.firing = active && (
+      inputSettingsRef.current.primaryFireMode === "toggle" || Math.hypot(x, y) > 0.08
+    );
   };
 
   const queueTouchNova = () => {
@@ -4792,15 +5072,114 @@ export function VoidforgeGame() {
     touchInputRef.current.novaQueued = true;
   };
 
+  const beginBindingCapture = (action: KeyboardAction, slotIndex: number) => {
+    const label = KEYBOARD_ACTION_LABELS[action];
+    setBindingCapture({ action, slotIndex });
+    setControlSettingStatus(`Listening for ${label}. Press a new key, or Escape to cancel.`);
+  };
+
+  const resetControlSettings = () => {
+    setBindingCapture(null);
+    setInputSettings(DEFAULT_INPUT_SETTINGS as InputSettings);
+    setControlSettingStatus("Default keyboard, gamepad, and fire-mode controls restored.");
+  };
+
+  const updatePrimaryFireMode = (mode: PrimaryFireMode) => {
+    setInputSettings((current) => sanitizeInputSettings({
+      ...current,
+      primaryFireMode: mode,
+    }) as InputSettings);
+    setControlSettingStatus(mode === "toggle"
+      ? "Primary laser now toggles on each press or stick engagement."
+      : "Primary laser now fires only while held or while the aim stick is engaged.");
+  };
+
+  const updateGamepadDeadZone = (deadZone: number) => {
+    setInputSettings((current) => sanitizeInputSettings({
+      ...current,
+      gamepadDeadZone: deadZone,
+    }) as InputSettings);
+    setControlSettingStatus(`Gamepad dead zone set to ${Math.round(deadZone * 100)} percent.`);
+  };
+
+  const openHelp = (opener: HTMLElement) => {
+    helpOpenerRef.current = opener;
+    setBindingCapture(null);
+    setHelpOpen(true);
+  };
+
+  const trapHelpFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab" || bindingCaptureRef.current !== null) return;
+    const dialog = helpDialogRef.current;
+    if (dialog === null) return;
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(HELP_FOCUSABLE_SELECTOR))
+      .filter((element) => (
+        element.getClientRects().length > 0
+        && element.getAttribute("aria-hidden") !== "true"
+        && element.closest("[inert]") === null
+      ));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialog.focus({ preventScroll: true });
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const activeElement = document.activeElement;
+    if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  };
+
+  const dismissHelp = (restoreFocus: boolean) => {
+    if (!restoreFocus) {
+      helpReturnsToGameRef.current = true;
+      helpOpenerRef.current = null;
+    }
+    setBindingCapture(null);
+    setHelpOpen(false);
+  };
+  const closeHelp = () => dismissHelp(true);
+
+  const movementBindingLabel = ["moveUp", "moveLeft", "moveDown", "moveRight"]
+    .map((action) => getKeyDisplayLabel(inputSettings.keyboardBindings[action as KeyboardAction][0]))
+    .join("");
+  const primaryFireBindingLabel = getKeyDisplayLabel(inputSettings.keyboardBindings.primaryFire[0]);
+  const novaBindingLabel = getKeyDisplayLabel(inputSettings.keyboardBindings.nova[0]);
+  const pauseBindingLabel = getKeyDisplayLabel(inputSettings.keyboardBindings.pause[0]);
+  const tutorialInstruction = tutorialStep === null
+    ? ""
+    : getTutorialInstruction(
+        tutorialStep,
+        touchCapable,
+        movementBindingLabel,
+        primaryFireBindingLabel,
+        inputSettings.primaryFireMode,
+      );
+
   return (
     <main
       className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${tutorialStep ? `tutorial-step-${tutorialStep}` : ""} ${notice ? "notice-active" : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
       ref={shellRef}
     >
-      <div className="game-mount" ref={mountRef} />
+      <div
+        className="game-mount"
+        ref={mountRef}
+        inert={helpOpen ? true : undefined}
+        aria-hidden={helpOpen ? true : undefined}
+      />
       <div className="fx-vignette" />
       <div className="fx-grain" />
       <div className="ui-layer">
+        <div
+          className="ui-content"
+          inert={helpOpen ? true : undefined}
+          aria-hidden={helpOpen ? true : undefined}
+        >
         {screenMode === "title" && (
           <section className="title-screen" aria-labelledby="game-title">
             <div className="title-content">
@@ -4844,13 +5223,17 @@ export function VoidforgeGame() {
                     {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
                   </button>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.33<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
+                <span className="version-mark">Vesper flight core · build 01.34<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
               )}
             </div>
-            <MissionBriefing />
+            <MissionBriefing
+              movementBindingLabel={movementBindingLabel}
+              primaryFireBindingLabel={primaryFireBindingLabel}
+              novaBindingLabel={novaBindingLabel}
+            />
           </section>
         )}
 
@@ -4885,7 +5268,7 @@ export function VoidforgeGame() {
             />
             <TouchStick
               label="Aim"
-              hint="Hold to fire"
+              hint={inputSettings.primaryFireMode === "toggle" ? "Tap to toggle fire" : "Hold to fire"}
               tone="fire"
               onEngage={() => gameApiRef.current.unlockAudio()}
               onVector={updateTouchAim}
@@ -4916,7 +5299,7 @@ export function VoidforgeGame() {
         {tutorialStep && screenMode === "playing" && runPhase.kind === "active" && !helpOpen && !notice && (
           <TutorialCoachmark
             step={tutorialStep}
-            touchCapable={touchCapable}
+            instruction={tutorialInstruction}
             onSkip={() => gameApiRef.current.tutorialEvent("skip")}
             onComplete={() => gameApiRef.current.tutorialEvent("acknowledge")}
           />
@@ -4979,7 +5362,17 @@ export function VoidforgeGame() {
               <p className="eyebrow">Flight systems suspended</p>
               <h2>Paused</h2>
               <p>The Cinder Expanse is holding its breath.</p>
-              <button className="primary-action" onClick={() => gameApiRef.current.togglePause()}>Resume flight</button>
+              <div className="pause-actions">
+                <button className="primary-action" onClick={() => gameApiRef.current.togglePause()}>Resume flight</button>
+                <button
+                  className="voice-toggle"
+                  type="button"
+                  ref={pauseSettingsButtonRef}
+                  onClick={(event) => openHelp(event.currentTarget)}
+                >
+                  Control settings
+                </button>
+              </div>
             </section>
           </div>
         )}
@@ -4997,10 +5390,31 @@ export function VoidforgeGame() {
           </div>
         )}
 
+        </div>
+
         {helpOpen && (
-          <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
-            <button className="utility-button dialog-close" aria-label="Close help" onClick={() => setHelpOpen(false)}>×</button>
-            <h2 id="help-title">Flight manual</h2>
+          <section
+            className="help-dialog"
+            id="help-dialog"
+            ref={helpDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-title"
+            tabIndex={-1}
+            onKeyDown={trapHelpFocus}
+          >
+            <header className="help-dialog-header">
+              <h2 id="help-title">Flight manual</h2>
+              <button
+                className="utility-button dialog-close"
+                type="button"
+                ref={helpCloseButtonRef}
+                aria-label="Close help"
+                onClick={closeHelp}
+              >
+                ×
+              </button>
+            </header>
             <div className="help-actions">
               <button
                 className="primary-action tutorial-replay"
@@ -5008,7 +5422,7 @@ export function VoidforgeGame() {
                 aria-label="Replay first-run tutorial"
                 data-testid="tutorial-replay"
                 onClick={() => {
-                  setHelpOpen(false);
+                  dismissHelp(false);
                   gameApiRef.current.startTutorial();
                 }}
               >
@@ -5026,18 +5440,75 @@ export function VoidforgeGame() {
                 {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
               </button>
             </div>
+            <section className="control-settings" aria-labelledby="control-settings-title">
+              <div className="control-settings-header">
+                <div>
+                  <h3 id="control-settings-title">Control calibration</h3>
+                  <p>Bindings, stick response, and fire behavior are saved on this device.</p>
+                </div>
+                <button className="control-reset" type="button" onClick={resetControlSettings}>Restore defaults</button>
+              </div>
+              <div className="control-preferences">
+                <label className="control-preference">
+                  <span>Primary laser</span>
+                  <select
+                    aria-label="Primary laser input mode"
+                    value={inputSettings.primaryFireMode}
+                    onChange={(event) => updatePrimaryFireMode(event.target.value as PrimaryFireMode)}
+                  >
+                    <option value="hold">Hold to fire</option>
+                    <option value="toggle">Press to toggle</option>
+                  </select>
+                  <output>{inputSettings.primaryFireMode === "toggle" ? "Latched" : "Held"}</output>
+                </label>
+                <label className="control-preference">
+                  <span>Gamepad dead zone</span>
+                  <input
+                    aria-label="Gamepad stick dead zone"
+                    type="range"
+                    min="0.05"
+                    max="0.40"
+                    step="0.01"
+                    value={inputSettings.gamepadDeadZone}
+                    onChange={(event) => updateGamepadDeadZone(Number(event.target.value))}
+                  />
+                  <output>{Math.round(inputSettings.gamepadDeadZone * 100)}%</output>
+                </label>
+              </div>
+              <div className="key-binding-grid" aria-label="Keyboard bindings">
+                {(KEYBOARD_ACTIONS as readonly KeyboardAction[]).flatMap((action) => (
+                  inputSettings.keyboardBindings[action].map((code, slotIndex) => {
+                    const listening = bindingCapture?.action === action && bindingCapture.slotIndex === slotIndex;
+                    return (
+                      <button
+                        className={`key-binding-button ${listening ? "listening" : ""}`}
+                        type="button"
+                        key={`${action}-${slotIndex}`}
+                        aria-label={`${KEYBOARD_ACTION_LABELS[action]}, binding ${slotIndex + 1}: ${getKeyDisplayLabel(code)}`}
+                        aria-pressed={listening}
+                        onClick={() => beginBindingCapture(action, slotIndex)}
+                      >
+                        <span>{KEYBOARD_ACTION_LABELS[action]}</span>
+                        <strong>{listening ? "Press key…" : getKeyDisplayLabel(code)}</strong>
+                      </button>
+                    );
+                  })
+                ))}
+              </div>
+              <p className="control-setting-status" role="status" aria-live="polite">{controlSettingStatus}</p>
+            </section>
             <div className="help-grid">
-              <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
-              <div><h3>Touch targeting</h3><p>Drag the right stick to aim independently and hold it to fire. Tap Nova for a single homing charge; Pause opens every display option.</p></div>
-              <div><h3>Mine carefully</h3><p>Hold fire to cut Flux from planetoids. Short controlled bursts preserve the rock and extract more crystals.</p></div>
+              <div><h3>Variable thrust</h3><p>Use {movementBindingLabel}, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
+              <div><h3>Touch targeting</h3><p>Drag the right stick to aim independently and {inputSettings.primaryFireMode === "toggle" ? "engage it to toggle fire" : "hold it to fire"}. Tap Nova for one homing charge.</p></div>
+              <div><h3>Mine carefully</h3><p>Use {primaryFireBindingLabel} or your aim control to cut Flux. Short controlled bursts preserve the rock and extract more crystals.</p></div>
               <div><h3>Build the chain</h3><p>Score again within 4.5 seconds to raise the multiplier by 0.25×, up to 5.00×. Losing a hull resets it.</p></div>
               <div><h3>Earn extra hulls</h3><p>Your first extra hull arrives at 25,000 points, then every 50,000 points. Vesper can carry up to five hulls.</p></div>
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
-              <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
+              <div><h3>Launch Nova Charges</h3><p>Press {novaBindingLabel}, use a gamepad face button, or tap the orange Nova control. Each press launches at most one charge.</p></div>
               <div><h3>Break the wave</h3><p>You keep control while the Engine awakens. When DISRUPTION CHARGE appears, thrust beyond the segmented ring before it expands.</p></div>
               <div><h3>Clear the arena</h3><p>Rupture the core quickly and preserve hulls for a field-clear bonus. Score, hulls, charges, and high score carry into the next field.</p></div>
               <div><h3>Read field pressure</h3><p>Each new field changes Flux yield, escort coordination, Nova interception, landmarks, and color before later fields add more enemies. The chips below the scanner show the current modifiers.</p></div>
-              <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
+              <div><h3>Pause and restart</h3><p>Press {pauseBindingLabel}, use gamepad Menu, or tap Pause. Help never resumes combat behind the dialog.</p></div>
               <div><h3>Accessibility</h3><p>Reduce motion or flashing, tune effects and color, increase contrast, or disable the optional flight-guide voice. Sound is the master control for game audio and voice.</p></div>
             </div>
           </section>
@@ -5069,12 +5540,14 @@ export function VoidforgeGame() {
           )}
           <button
             className="utility-button"
+            ref={helpUtilityButtonRef}
             aria-label="Open flight manual"
+            aria-controls="help-dialog"
             aria-expanded={helpOpen}
-            onClick={() => {
+            onClick={(event) => {
               if (!helpOpen && screenMode === "playing") gameApiRef.current.togglePause();
               if (!helpOpen && screenMode === "attract") gameApiRef.current.stopAttract();
-              setHelpOpen((value) => !value);
+              openHelp(event.currentTarget);
             }}
           >
             <span aria-hidden="true">?</span><span className="utility-label">Help</span>
@@ -5089,7 +5562,7 @@ export function VoidforgeGame() {
         </p>
         <p className="sr-only" aria-live={voiceEnabled && !muted && voiceSupported ? "off" : "polite"} aria-atomic="true">
           {tutorialStep
-            ? `Tutorial step ${TUTORIAL_STEPS.indexOf(tutorialStep) + 1} of ${TUTORIAL_STEPS.length}. ${TUTORIAL_COPY[tutorialStep].title}. ${touchCapable ? TUTORIAL_COPY[tutorialStep].touch : TUTORIAL_COPY[tutorialStep].desktop}`
+            ? `Tutorial step ${TUTORIAL_STEPS.indexOf(tutorialStep) + 1} of ${TUTORIAL_STEPS.length}. ${TUTORIAL_COPY[tutorialStep].title}. ${tutorialInstruction}`
             : ""}
         </p>
       </div>

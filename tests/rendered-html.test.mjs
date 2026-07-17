@@ -30,12 +30,14 @@ test("server-renders the VOIDFORGE launch screen", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
-test("ships the game, arcade-run layer, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, arcadeRun, audio, styles, layout, packageJson] = await Promise.all([
+test("ships the game, arcade-run layer, tactical controls, procedural audio, high-resolution art, and no starter preview", async () => {
+  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/arcade-run.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/sentinel-behavior.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/input-settings.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -70,7 +72,26 @@ test("ships the game, arcade-run layer, procedural audio, high-resolution art, a
   assert.match(component, /Back to briefing/);
   assert.match(component, /className="field-modifier-strip"/);
   assert.match(component, /Field pressure:/);
-  assert.match(component, /build 01\.33/);
+  assert.match(component, /build 01\.34/);
+  assert.match(component, /Control calibration/);
+  assert.match(component, /Gamepad dead zone/);
+  assert.match(component, /Press to toggle/);
+  assert.match(component, /getTutorialInstruction/);
+  assert.match(component, /suppressPressedInputEdges/);
+  assert.match(component, /controlsLocked: controlsLocked \|\| localMode !== "playing" \|\| suppressPressedInputEdges/);
+  assert.match(component, /inputSettingsRef\.current\.primaryFireMode === "toggle"/);
+  assert.match(component, /sentinel\.view\.rotation = Math\.atan2\(attackDy, attackDx\)/);
+  assert.match(component, /HELP_FOCUSABLE_SELECTOR/);
+  assert.match(component, /inert=\{helpOpen \? true : undefined\}/);
+  assert.match(component, /dismissHelp\(false\)/);
+  assert.match(component, /helpReturnsToGameRef/);
+  assert.match(component, /advanceSentinelBehavior/);
+  assert.match(sentinelBehavior, /SENTINEL_BURST_SHOT_COUNT = 3/);
+  assert.match(sentinelBehavior, /constructionProgress/);
+  assert.match(inputSettings, /voidforge-input-settings-v1/);
+  assert.match(inputSettings, /findFirstConnectedGamepad/);
+  assert.match(inputSettings, /isRebindableKeyCode/);
+  assert.match(inputSettings, /reduceInputState/);
   assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
   assert.match(arcadeRun, /FIRST_EXTRA_HULL_SCORE = 25_000/);
   assert.match(arcadeRun, /awardArenaClearBonus/);
@@ -80,6 +101,9 @@ test("ships the game, arcade-run layer, procedural audio, high-resolution art, a
   assert.match(styles, /\.tutorial-panel\b/);
   assert.match(styles, /\.attract-overlay\b/);
   assert.match(styles, /\.field-modifier-chip\b/);
+  assert.match(styles, /\.control-settings\b/);
+  assert.match(styles, /\.help-dialog-header\b/);
+  assert.match(styles, /canvas:focus-visible/);
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(audio, /class VoidforgeAudio/);
   assert.match(audio, /createOscillator/);

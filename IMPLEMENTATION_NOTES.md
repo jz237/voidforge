@@ -14,14 +14,14 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Boss | Dread Engine: abstract concentric rings, offset pylons, and a void core; never a demonic face |
 | Boss attack | A control-preserving Awakening, bounded predictive pursuit, and a telegraphed radial disruption wave; no mouth, bite, consumption, skull, horns, or roar |
 | Player | High-resolution ivory/cyan Vesper with articulated engine vanes |
-| Enemies | Amber tripod Fabricators and magenta crescent Sentinels with new behaviors |
+| Enemies | Amber tripod Fabricators and magenta crescent Sentinels with construction-aware guard/interception roles and a telegraphed three-shot cadence |
 | Resource/weapon | Flux Shards become spiral-guided Nova Charges; new forms, names, trails, and sounds |
 | Construction | Radial machine modules align around a scaffold; no facial assembly |
 | World | Native widescreen bounded arena with directional camera lead, threat zoom, story landmarks, and persistent wreckage |
 | Graphics | Material-family 2D WebGL art, headroom-gated 4K microdetail, intent-driven animation, staged damage, and restrained cinematic post-processing |
 | Interface | Contextual holographic HUD, player-relative radar trails, targeting brackets, off-screen warnings, and explicit construction ticks |
 | Audio | Original Web Audio synthesis, adaptive layers, spatial effects, optional browser-spoken Vesper guidance, and original low-pitch Engine dialogue |
-| Controls | Keyboard/gamepad plus responsive touch twin sticks, six-band thrust, independent aim/held fire, one-tap Nova, and swappable handedness |
+| Controls | Keyboard/gamepad plus responsive touch twin sticks, six-band thrust, independent aim, one-tap Nova, swappable handedness, and persisted rebinding/dead-zone/hold-toggle calibration |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
 | Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
 
@@ -65,6 +65,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Treat attract play as disposable presentation state: disable score and high-score mutation, suppress game audio and speech, and let player input immediately replace it with a clean normal run.
 - Resolve bounded field tuning through `app/game/field-progression.mjs`. Field 2 changes Flux scarcity, movement pressure, guard behavior, Nova interception, palette, and landmarks before Field 3 increases actor counts; later stages increase density only within explicit caps.
 - Keep field profiles independent of rendering and deeply immutable. The runtime consumes their pressure label, HUD modifiers, palette accents, landmark variant, resource yield, AI biases, speed scales, and initial/cap counts without embedding progression policy in Pixi display objects.
+- Keep Sentinel role allocation and attack timing in `app/game/sentinel-behavior.mjs`. Nova interception is resolved before guarding and player pressure; construction progress reallocates the current live population toward guards without adding actors. Once in range, a Sentinel advances through approach, charge, exactly three 0.12-second-spaced shot events, and breakaway before approaching again.
+- Keep persisted control policy in `app/game/input-settings.mjs`. Sanitize the `voidforge-input-settings-v1` payload into deeply immutable keyboard bindings, a 5%–40% radial gamepad dead zone, and hold/toggle primary-fire behavior. Rebinding an occupied key swaps its previous slot, restricted browser/system keys are rejected, and locked/reset phases clear latches and consume held edges.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - During the 2.5-second Awakening, retain player control while braking the Engine and suppressing pursuit and boss contact damage. Afterward, derive pursuit lead as `clamp(distance / 1050, 0.42, 1.05)` seconds and clamp the target to 180 px world margins.
 - Emit predictive contact text and warning audio only when the Engine is within 560 units and closing faster than 95 units per second; gate repeats behind a 2.4-second anti-spam cooldown.
@@ -94,7 +96,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Fracture stages, disabled systems, persistent capped wreckage, exposed conduits, scorch nodes, and per-hit module disassembly make damage readable after transient effects fade.
 - The Dread Engine's asymmetric clusters, targeting beam, and contained aura communicate orientation without facial imagery. Ring alignment marks Awakening; velocity-led movement communicates pursuit; predictive collision danger uses text and warning audio; text, audio, and a segmented non-color ring telegraph disruption charge.
 - Sparks, shards, smoke, and plasma use typed visual behavior. Decorative impact shockwaves remain subordinate to projectiles, pickups, and collision cues, while the disruption ring preserves its gameplay radius and priority.
-- Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone.
+- Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone. Sentinel charge marks, three-shot spacing, and breakaway motion make the attack phase legible without relying on color.
 - Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and cinematic trauma/danger framing share the post-processing pipeline with scene-wide color-vision transforms.
 - The adaptive-score envelope synchronizes restrained conduit, beacon, reticle, and machinery cadence; Reduced Flashing replaces luminance pulses with stable states.
 - Contextual HUD status, player-relative radar trails, protected targeting brackets, and persistent boss/Sentinel/projectile edge warnings redundantly identify danger, contact type, motion, bearing, and Dread Engine state.
@@ -117,30 +119,29 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Visible coachmarks and notices are authoritative. When guide speech is disabled or unavailable, the polite live region remains active so no instruction or warning depends on browser speech.
 - Browser/system voice selection and rendering vary by platform; do not depend on a particular installed voice, timbre, language variant, or timing.
 - Spatial rolloff must not hide critical warnings.
-- Sub-bass is optional and separately adjustable.
+- The current release routes sub-bass beneath the Sound master; a separate sub-bass/mix control remains future work.
 - Browser audio begins only after user interaction and resumes safely after focus changes.
 
 ## Current release scope
 
-Shipped in the current build:
+Shipped in build 01.34:
 
 - Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
 - Bounded Cinder Expanse fields with a scanner and staged scarcity, guard coordination, Nova interception, speed, palette, landmark, HUD, and capped population profiles
-- Mining, shard collection, Fabricators, Sentinels, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
+- Mining, shard collection, Fabricators, construction-aware Sentinel pressure/guard/interception roles with a telegraphed three-shot cadence, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
 - Centralized chained scoring with a 1.00×–5.00× HUD multiplier, a locally persisted high score, extra hulls at 25,000 then every 50,000 points, the five-hull cap, and exact clear-time/remaining-hull bonuses
 - Explicit 1.25-second Hull Lost and 5.5-second Arena Clear presentations, protected respawn, preserved score/charge inventory across a loss, scored clear breakdown, field-to-field run preservation, game over, and restart
-- Keyboard, gamepad, and responsive touch controls for phone portrait and landscape
+- Keyboard, gamepad, and responsive touch controls for phone portrait and landscape, with persisted keyboard rebinding, 5%–40% gamepad dead-zone calibration, hold/toggle primary fire, conflict-safe swaps, and default restoration
 - Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, deterministic QA overrides, and enlarged phone tutorial copy/actions
 - Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
-- Deterministic test mode, attract-mode/field-progression/arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
+- Deterministic test mode, attract-mode/field-progression/Sentinel-behavior/input-settings/arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
 
 ## Remaining parity backlog
 
-- Add keyboard rebinding, adjustable gamepad dead zone, primary-fire toggle/hold choice, and any remaining independent audio controls promised by the specification.
 - Add additional named arenas beyond the staged Cinder Expanse field profiles.
-- Extend the adaptive score, destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
+- Extend richer multi-source lighting, the adaptive score and audio layers (including independent mix/sub-bass controls), destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
 - Complete physical-device Safari/Chrome touch validation and longer metadata-bearing 1080p/4K maximum-density profiles with automated thresholds. The existing short profile JSON files remain useful snapshots, not hardware certification.
 - Add browser-level climax checks for retained Awakening control, suppression of premature pursuit/contact damage, predictive contact-warning thresholds and anti-spam, disruption text/audio/ring synchronization, pause freezing, reset/destruction/game-over cleanup, and Reduced Motion/Reduced Flashing behavior.
 
@@ -154,11 +155,14 @@ Shipped in the current build:
 - [x] Deterministic arcade-run tests cover score rounding, the 4.5-second multiplier window, Hull Lost reset, multi-threshold extra hulls, the five-hull cap, and Arena Clear bonuses.
 - [x] Deterministic attract-mode tests cover the 10-second idle boundary, bounded advancement, four-phase timing, and 30-second loop wrap.
 - [x] Deterministic field-progression tests cover immutable profiles, scarcity and coordination before actor-count growth, visual variants, and bounded late-field tuning.
+- [x] Deterministic Sentinel-behavior tests cover interception priority, construction-driven guard reallocation without count growth, immutable state, and the approach/charge/three-shot/breakaway cadence.
+- [x] Deterministic input-settings tests cover safe persistence sanitization, immutable defaults, conflict-swapping rebinding, radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior.
 - [ ] Browser play verifies no pursuit/contact damage during Awakening, predictive contact-warning thresholds and 2.4-second anti-spam, one unshielded hull loss per wave, and complete pause/reset/destruction/game-over cleanup.
 - [ ] Disruption text, warning audio, and non-color ring remain synchronized and readable with Reduced Motion, Reduced Flashing, High Contrast, and FX Off.
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.
 - [ ] Reduced Motion, Reduced Flashing, and color-vision presets are verified in play.
 - [ ] Keyboard, gamepad, and browser-simulated touch input can complete the full loop.
+- [ ] Browser play verifies rebound keys, persisted dead-zone and fire-mode choices, default restoration, and latch cleanup across pause, Hull Lost, Arena Clear, game over, and restart.
 - [ ] Move, Extract, Collect, and Mission loop tutorial stages advance from gameplay events regardless of input device or action ordering.
 - [ ] Voice defaults on only when supported, persists as `voidforge-guide-voice`, and is controllable from the first-flight title and Help.
 - [ ] Sound master mute overrides game audio, Vesper guidance, and Engine dialogue without rewriting the subordinate Voice preference.

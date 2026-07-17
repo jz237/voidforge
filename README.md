@@ -4,6 +4,8 @@
 
 VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, retain control through its Awakening, evade predicted pursuit and radial disruption waves, and destroy it with homing Nova Charges.
 
+Current release: **build 01.34**.
+
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
 ## Play locally
@@ -24,18 +26,22 @@ npm run start
 
 ## Controls
 
+These are the defaults. Every keyboard action can be rebound from **Help → Control calibration**.
+
 | Action | Keyboard | Standard gamepad | Touch |
 | --- | --- | --- | --- |
 | Thrust and steer | WASD or arrow keys | Left stick | Left virtual stick |
 | Aim | Travel direction | Right stick or travel direction | Right virtual stick |
-| Fire laser / mine | Space | South face button | Hold the right virtual stick |
+| Fire laser / mine | Space | South face button | Hold or engage the right virtual stick |
 | Launch Nova Charge | C or Shift | East or west face button | Tap **Nova** |
 | Pause / resume | P or Escape | Menu button | Tap **Pause** |
 | Mute / unmute | M | — | Tap **Sound** |
 | Start | Enter or on-screen button | On-screen button | On-screen button |
 | Restart after game over | R or on-screen button | On-screen button | On-screen button |
 
-On touch-capable phones, the responsive twin-stick layout defaults to left-side thrust and right-side independent aim with held fire. Thrust magnitude is quantized into six readable speed bands. **Nova** queues one launch per tap, while **Pause** opens the options overlay; its **Swap** control switches the touch layout to southpaw orientation.
+Control calibration is saved locally under `voidforge-input-settings-v1`. Rebinding a key already assigned elsewhere swaps the conflicting slots so controls remain unambiguous. Escape cancels key capture and remains available as the default secondary Pause key through **Restore defaults**. The radial gamepad dead zone is adjustable from 5% to 40% with a 14% default, and primary fire can use either **Hold to fire** or **Press to toggle** across keyboard, gamepad, and touch. **Restore defaults** resets bindings, stick response, and fire behavior together.
+
+On touch-capable phones, the responsive twin-stick layout defaults to left-side thrust and right-side independent aim. The right stick holds or toggles fire according to the saved calibration. Thrust magnitude is quantized into six readable speed bands. **Nova** queues one launch per tap, while **Pause** opens the options overlay; its **Swap** control switches the touch layout to southpaw orientation.
 
 Phone portrait and landscape layouts both respect display safe areas, keep the HUD above the controls, and enlarge tutorial text and its Skip/Begin mission actions. Pointer capture preserves a drag that leaves a stick, while pointer cancellation, lost capture, blur, page hide, and orientation changes clear held input. Blur or page hide during play also pauses the game automatically. Keyboard and gamepad input remain available.
 
@@ -67,6 +73,8 @@ After 10 idle seconds, the title can enter a silent, non-scoring attract demonst
 
 Successive fields now use staged pressure profiles instead of relying first on enemy density. Early progression reduces planetoid availability and Flux yield while increasing Fabricator speed, Sentinel guard coordination, and Nova interception pressure before actor counts rise. Later stages continue with bounded population growth. Each profile also changes its pressure label, HUD modifiers, accent palette, and landmark arrangement, while fields beyond the final tuning stage retain their field number without unbounded difficulty growth.
 
+Sentinel tactics now reassign the existing live population among player pressure, Fabricator/Engine guarding, and Nova interception. A valid Nova interception always takes priority, while construction progress shifts more of the same population into guard duty without silently adding enemies. When in range, each attacker follows a readable approach, charge, three-shot burst, and breakaway cadence; charge marks and movement state communicate the cycle before the bolts arrive.
+
 ## Accessibility and display
 
 The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, the master Sound control, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Visible coachmarks and notices remain authoritative, and the polite live-region fallback stays active whenever Voice is off, master Sound is muted, or speech synthesis is unavailable. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
@@ -93,10 +101,12 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/arcade-run.mjs` — deterministic multiplier, high-level score transactions, extra hulls, Hull Lost reset, and Arena Clear bonus rules
 - `app/game/attract-mode.mjs` — deterministic title-idle delay and four-phase attract-loop timing
 - `app/game/field-progression.mjs` — bounded field scarcity, coordination, interception, population, palette, landmark, and HUD profiles
+- `app/game/sentinel-behavior.mjs` — deterministic Sentinel role allocation, construction-driven guarding, and bounded three-shot attack cadence
+- `app/game/input-settings.mjs` — sanitized persisted keyboard bindings, radial gamepad calibration, and merged hold/toggle input routing
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
-- `tests/` — deterministic attract-mode, field-progression, arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
+- `tests/` — deterministic attract-mode, field-progression, Sentinel-behavior, input-settings, arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
 - `artifacts/screenshots/` — the eight required gameplay states at both 1080p and native 4K
 - `RESEARCH.md`, `GAME_SPEC.md`, and `IMPLEMENTATION_NOTES.md` — research boundaries, game specification, and clean-room decisions
 
@@ -104,7 +114,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The boss climax, arcade-run layer, attract demo, and staged field pressure are shipped. Remaining work includes input customization, additional named arenas, broader adaptive audio/destruction/quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax, arcade-run layer, attract demo, staged field pressure, Sentinel tactics, and persisted input calibration are shipped. Remaining work includes additional named arenas, richer multi-source lighting and adaptive audio, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 
@@ -120,6 +130,8 @@ Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial
 Automated spoken-guidance checks cover every tutorial line, the selected mission-cue allowlist, once-per-run delivery, the Voice storage-key contract, and no backlog after muted, disabled, hidden, or unsupported cues. Browser checks should confirm the default and persisted Voice choice, Sound-master precedence, immediate cancellation on pause, page hide, game over, Skip, master mute, Voice off, and teardown, and continued visible/live-region guidance.
 
 `tests/attract-mode.test.mjs` verifies the 10-second idle boundary, bounded frame advancement, all four 7.5-second phase transitions, and 30-second loop wrap. `tests/field-progression.test.mjs` verifies deterministic immutable profiles, behavior-and-scarcity escalation before count growth, changing visual identity, and bounded late-field tuning.
+
+`tests/sentinel-behavior.test.mjs` verifies interception priority, construction-driven guard reallocation without population growth, immutable sanitized state, and the approach/charge/exactly-three-shots/breakaway cadence. `tests/input-settings.test.mjs` verifies immutable defaults, safe persistence sanitization, conflict-swapping keyboard rebinding, 5%–40% radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior across locked and reset states.
 
 `tests/boss-behavior.test.mjs` verifies the 2.5-second Awakening countdown, bounded velocity-lead prediction, and swept radial collision including tangency and non-expanding waves. Browser climax QA still needs to exercise retained control, warning synchronization, pause/reset/destruction/game-over cleanup, and accessibility variants as live integrated behavior.
 

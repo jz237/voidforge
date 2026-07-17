@@ -1,6 +1,6 @@
 # VOIDFORGE Game Specification
 
-Version: 0.1  
+Version: 0.1 · build 01.34
 Title: **VOIDFORGE**  
 Genre: high-resolution multidirectional arcade shooter
 
@@ -54,11 +54,13 @@ All values are data-driven and subject to playtesting.
 
 Movement has acceleration, momentum, drag, and a fast reversal response. Keyboard aim follows travel direction, while gamepad and touch right sticks can aim independently of thrust.
 
+The table lists default bindings. **Help → Control calibration** exposes persisted keyboard rebinding, radial gamepad dead-zone adjustment, primary-fire hold/toggle behavior, and one-button default restoration.
+
 | Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
 | Thrust / steer | WASD or arrows | Left stick | Left virtual stick |
 | Aim | Travel direction | Right stick or travel direction | Right virtual stick |
-| Primary laser | Space | South face button | Hold the right virtual stick |
+| Primary laser | Space | South face button | Hold or engage the right virtual stick |
 | Nova Charge | Shift or C | East or west face button | Tap **Nova** |
 | Pause | P or Escape | Menu | Tap **Pause** |
 | Restart after game over | R | South face button | On-screen restart |
@@ -66,7 +68,10 @@ Movement has acceleration, momentum, drag, and a fast reversal response. Keyboar
 
 - Keyboard, gamepad, and touch thrust are normalized into six output bands. Digital keyboard input reaches full thrust; analog stick distance selects lower bands.
 - Opposite input applies stronger braking before accelerating in the new direction.
-- On touch-capable phones, the default responsive layout is left-side thrust plus right-side aim and held fire. The right stick's aim vector remains independent of thrust.
+- Keyboard bindings, gamepad dead zone, and primary-fire mode persist together under `voidforge-input-settings-v1`. Persisted input is sanitized before use; an occupied key swaps with the rebound slot, restricted browser/system keys are rejected, Escape cancels capture while remaining the restored secondary Pause default, and **Restore defaults** resets the complete calibration.
+- The radial gamepad dead zone ranges from 5% to 40% with a 14% default, and rescales travel outside the threshold back to the full zero-to-one range. The first connected browser gamepad is used even when it is not in slot zero.
+- Primary fire supports **Hold to fire** and edge-triggered **Press to toggle** across keyboard, gamepad, and touch. Pause, Hull Lost, Arena Clear, game over, restart, and other control locks clear the latch and consume held edges so fire or Nova cannot leak into resumed play.
+- On touch-capable phones, the default responsive layout is left-side thrust plus right-side aim. The right stick's aim vector remains independent of thrust and holds or toggles fire according to the saved mode.
 - Each **Nova** tap queues one launch attempt. It does not become a held-fire control, and a launch without a valid target still consumes no charge.
 - **Pause** opens the options overlay. Its **Swap** button reverses the touch-control sides and Nova placement for southpaw play.
 - Each stick captures its active pointer so a drag can leave the pad. Pointer up, cancellation, or lost capture releases that stick and prevents stuck movement or fire.
@@ -113,7 +118,7 @@ Uses a readable state machine: seek loose shard → tether cargo → route to th
 
 ### Sentinel
 
-Selects among player pressure, Dread Engine guard, and charge interception. It approaches on a curved flank, pauses briefly before a three-shot burst, and breaks away after firing. At high construction progress, more Sentinels guard charge lanes rather than simply increasing projectile count.
+Selects deterministically among player pressure, Dread Engine/Fabricator guarding, and Nova interception. A live Nova interception is allocated before guard or pressure duty. Construction progress reallocates more of the current Sentinel population toward guards without increasing actor count. Once inside engagement range, each craft follows a 0.9-second approach, 0.42-second visible charge, exactly three shots spaced by 0.12 seconds, and a 0.8-second breakaway before approaching again. Charge marks, shot spacing, and retreat motion provide non-color phase cues.
 
 ### The Dread Engine
 
@@ -205,7 +210,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 
 ## Game states and progression
 
-Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. Hull Lost and Arena Clear are explicit, short presentation phases layered over the field; they hide touch flight controls, reject gameplay input, and freeze the field/chain clock without a long cinematic. Arena Clear additionally rejects further scoring and enemy spawning, clears pending boss hazards, and preserves score, hulls, Nova Charges, extra-hull progress, and high score into the next field. First-run guidance and the timed Dread Engine Awakening remain event-driven phases within playing. Pause freezes lifecycle and boss timers; reset, destruction, and game over cannot leave a pending disruption attack alive. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material. A true gameplay attract demonstration remains deferred; the title currently uses ambient field motion.
+Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. Hull Lost and Arena Clear are explicit, short presentation phases layered over the field; they hide touch flight controls, reject gameplay input, and freeze the field/chain clock without a long cinematic. Arena Clear additionally rejects further scoring and enemy spawning, clears pending boss hazards, and preserves score, hulls, Nova Charges, extra-hull progress, and high score into the next field. First-run guidance and the timed Dread Engine Awakening remain event-driven phases within playing. Pause freezes lifecycle and boss timers; reset, destruction, and game over cannot leave a pending disruption attack alive. The title enters a silent, non-scoring gameplay attract demonstration after 10 idle seconds; its deterministic 30-second loop gives mining, construction, pursuit, and disruption 7.5 seconds each, and takeover starts a fresh normal run. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material.
 
 ## Performance and verification
 
@@ -218,10 +223,12 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Browser QA for the climax additionally verifies retained control during Awakening, no premature pursuit/contact damage, contact warnings only inside 560 units while closing faster than 95 units per second with a 2.4-second anti-spam interval, synchronized disruption text/audio/ring warnings, the swept wave hit, and safe Reduced Motion/Reduced Flashing variants. These dynamic checks are not inferred from the frozen screenshot matrix.
 - Browser mobile-viewport and pointer-event checks cover portrait/landscape layout, pointer capture and cancellation, safe-area rules, and background auto-pause. Physical-device mobile Safari and Chrome validation remains pending.
 - Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, canonical scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides. `tests/arcade-run.test.mjs` covers multiplier timing, rounding, multi-threshold extra hulls, the five-hull cap, Hull Lost reset, and the exact Arena Clear formula. `tests/boss-behavior.test.mjs` separately covers the 2.5-second Awakening countdown, bounded pursuit prediction, and swept radial collision helpers exported by `app/game/boss-behavior.mjs`.
+- `app/game/sentinel-behavior.mjs` isolates immutable role allocation and attack cadence from Pixi. `tests/sentinel-behavior.test.mjs` verifies interception priority, construction-driven guard growth without population growth, sanitized state, phase freezing, exactly three spaced shots, and no charge/breakaway fire.
+- `app/game/input-settings.mjs` isolates sanitized persisted calibration and merged input routing. `tests/input-settings.test.mjs` verifies immutable defaults, conflict-swapping rebinds, reserved-key rejection, 5%–40% radial dead-zone behavior, nonzero connected-pad slots, hold/toggle edges, and lock/reset cleanup.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 - Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
 - Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
