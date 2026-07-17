@@ -30,14 +30,16 @@ test("server-renders the VOIDFORGE launch screen", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
-test("ships the game, arcade-run layer, tactical controls, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, audio, styles, layout, packageJson] = await Promise.all([
+test("ships the game, closed Flux economy, tactical scanner, procedural audio, high-resolution art, and no starter preview", async () => {
+  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, radarContacts, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/arcade-run.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/sentinel-behavior.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/input-settings.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/resource-liveness.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/radar-contacts.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -59,6 +61,10 @@ test("ships the game, arcade-run layer, tactical controls, procedural audio, hig
   assert.match(component, /data-testid="tutorial-replay"/);
   assert.match(component, /aria-label="Skip first-run tutorial"/);
   assert.match(component, /Turn flight guide voice off/);
+  assert.match(component, /data-testid="title-audio-controls"/);
+  assert.match(component, /aria-label=\{muted \? "Unmute sound" : "Mute sound"\}/);
+  assert.match(component, /role="img"/);
+  assert.match(component, /Tactical scanner:/);
   assert.match(component, /speechSynthesis\.speak/);
   assert.match(component, /speechSynthesis\.cancel/);
   assert.match(guidance, /voidforge-guide-voice/);
@@ -72,7 +78,7 @@ test("ships the game, arcade-run layer, tactical controls, procedural audio, hig
   assert.match(component, /Back to briefing/);
   assert.match(component, /className="field-modifier-strip"/);
   assert.match(component, /Field pressure:/);
-  assert.match(component, /build 01\.34/);
+  assert.match(component, /build 01\.35/);
   assert.match(component, /Control calibration/);
   assert.match(component, /Gamepad dead zone/);
   assert.match(component, /Press to toggle/);
@@ -92,6 +98,15 @@ test("ships the game, arcade-run layer, tactical controls, procedural audio, hig
   assert.match(inputSettings, /findFirstConnectedGamepad/);
   assert.match(inputSettings, /isRebindableKeyCode/);
   assert.match(inputSettings, /reduceInputState/);
+  assert.match(component, /FLUX RESERVE COLLAPSE/);
+  assert.match(component, /NOVA HOLD FULL/);
+  assert.match(component, /qa"\) === "flux-deficit/);
+  assert.match(component, /ENGINE REPAIR \+1/);
+  assert.match(component, /radar-mobile-status/);
+  assert.match(resourceLiveness, /assessFluxLiveness/);
+  assert.match(resourceLiveness, /recommendedRecoveryShardCount/);
+  assert.match(radarContacts, /selectRadarCandidates/);
+  assert.match(radarContacts, /projectRadarContact/);
   assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
   assert.match(arcadeRun, /FIRST_EXTRA_HULL_SCORE = 25_000/);
   assert.match(arcadeRun, /awardArenaClearBonus/);

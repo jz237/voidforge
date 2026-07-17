@@ -114,19 +114,68 @@ export function collectShard(run) {
   };
 }
 
-export function depositFabricatorShard(run) {
-  if (run.engineActive) {
-    return {
-      ...run,
-      engineHealth: Math.min(RULES.engineHits, run.engineHealth + 1),
-    };
+function boundedInteger(value, fallback, maximum) {
+  const numeric = typeof value === "string" && value.trim() !== ""
+    ? Number(value)
+    : value;
+  if (!Number.isFinite(numeric)) return fallback;
+  return clamp(Math.trunc(numeric), 0, maximum);
+}
+
+/**
+ * Resolve one Fabricator delivery without mutating the supplied state.
+ * Construction always consumes a dormant delivery. Active deliveries repair
+ * at most one node only when the current field explicitly enables repair.
+ */
+export function resolveFabricatorDelivery(input = {}) {
+  const source = input !== null && typeof input === "object" ? input : {};
+  const enginePieces = boundedInteger(source.enginePieces, 0, RULES.enginePieces);
+  const engineHealth = boundedInteger(
+    source.engineHealth,
+    RULES.engineHits,
+    RULES.engineHits,
+  );
+  const engineActive = source.engineActive === true;
+  const repairEnabled = source.repairEnabled === true;
+
+  if (!engineActive) {
+    const nextPieces = Math.min(RULES.enginePieces, enginePieces + 1);
+    const activated = nextPieces === RULES.enginePieces;
+    return Object.freeze({
+      kind: activated ? "activate" : "construct",
+      enginePieces: nextPieces,
+      engineHealth,
+      engineActive: activated,
+      repaired: false,
+    });
   }
 
-  const enginePieces = Math.min(RULES.enginePieces, run.enginePieces + 1);
+  const repaired = repairEnabled && engineHealth < RULES.engineHits;
+  return Object.freeze({
+    kind: repaired ? "repair" : "spent",
+    enginePieces,
+    engineHealth: repaired ? engineHealth + 1 : engineHealth,
+    engineActive: true,
+    repaired,
+  });
+}
+
+export function depositFabricatorShard(run, options = {}) {
+  const explicitRepairPolicy = typeof options === "boolean"
+    ? options
+    : options?.repairEnabled;
+  const repairEnabled = explicitRepairPolicy ?? ((run.zone ?? 1) > 1);
+  const outcome = resolveFabricatorDelivery({
+    enginePieces: run.enginePieces,
+    engineHealth: run.engineHealth,
+    engineActive: run.engineActive,
+    repairEnabled,
+  });
   return {
     ...run,
-    enginePieces,
-    engineActive: enginePieces === RULES.enginePieces,
+    enginePieces: outcome.enginePieces,
+    engineHealth: outcome.engineHealth,
+    engineActive: outcome.engineActive,
   };
 }
 

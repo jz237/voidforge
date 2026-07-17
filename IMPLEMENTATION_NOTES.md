@@ -67,6 +67,10 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Keep field profiles independent of rendering and deeply immutable. The runtime consumes their pressure label, HUD modifiers, palette accents, landmark variant, resource yield, AI biases, speed scales, and initial/cap counts without embedding progression policy in Pixi display objects.
 - Keep Sentinel role allocation and attack timing in `app/game/sentinel-behavior.mjs`. Nova interception is resolved before guarding and player pressure; construction progress reallocates the current live population toward guards without adding actors. Once in range, a Sentinel advances through approach, charge, exactly three 0.12-second-spaced shot events, and breakaway before approaching again.
 - Keep persisted control policy in `app/game/input-settings.mjs`. Sanitize the `voidforge-input-settings-v1` payload into deeply immutable keyboard bindings, a 5%–40% radial gamepad dead zone, and hold/toggle primary-fire behavior. Rebinding an occupied key swaps its previous slot, restricted browser/system keys are rejected, and locked/reset phases clear latches and consume held edges.
+- Keep mandatory-phase resource accounting in `app/game/resource-liveness.mjs`. Construction counts only unmined, loose, and Fabricator-carried Flux; assault additionally counts stored and launched Novas. Spawn one warned bounded recovery body only when that accounting proves a deficit, and suppress recovery in tutorial, showcase, profile, paused, destroyed, and scoring-locked states.
+- Keep contact projection and priority in `app/game/radar-contacts.mjs`. Retain one Engine bearing outside nominal range, then reserve nearest-crystal and nearest-planetoid visibility before filling the hard cap by hostile-projectile, Sentinel, loaded-Fabricator, Fabricator, and resource priority. Contact identity must remain shape-coded.
+- Do not consume a loose crystal when the Nova hold is already full. Separate it from the Vesper and leave it available to the shared economy.
+- Treat active-Engine repair as an explicit field policy. Field 01 spends post-activation Fabricator cargo without repair; later fields restore exactly one node per eligible delivery, clamp at full health, and expose the repair through persistent Engine part state, impact, text, and sound.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - During the 2.5-second Awakening, retain player control while braking the Engine and suppressing pursuit and boss contact damage. Afterward, derive pursuit lead as `clamp(distance / 1050, 0.42, 1.05)` seconds and clamp the target to 180 px world margins.
 - Emit predictive contact text and warning audio only when the Engine is within 560 units and closing faster than 95 units per second; gate repeats behind a 2.4-second anti-spam cooldown.
@@ -112,7 +116,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Synthesize or record all effects anew; do not process reference samples.
 - Threat state must be readable without speech. Construction rhythm, warning tones, scanner animation, and text provide redundancy.
 - Construction warnings fire at 5, 10, 15, and 19 installed modules. Disruption charge combines dedicated text, audio, and segmented ring geometry, and its expanding front remains readable without color or speech.
-- Sound is the master for the Web Audio graph, Vesper guide, and Engine dialogue. Voice on/off is a persisted subordinate choice available on the first-flight title and in Help, not a way to bypass master mute.
+- Sound is the master for the Web Audio graph, Vesper guide, and Engine dialogue. Voice on/off is a persisted subordinate choice available on the first-flight title and in Help, while touch titles expose both 44px controls on every visit so the opening cue honors returning-player preferences.
 - Speak each tutorial stage once on entry from input-neutral original copy. Outside tutorial completion, guide mission cues are restricted to mission start, assembly critical, and Engine awake; Engine activation and destruction may use their separate original low-pitch dialogue.
 - Muted, Voice-off, hidden, and unsupported cues are consumed without playback or queuing. Unmuting or re-enabling Voice never drains a stale backlog.
 - Pause, page hide, game over, Skip, master mute, Voice off, and teardown cancel any active browser utterance.
@@ -124,11 +128,14 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 ## Current release scope
 
-Shipped in build 01.34:
+Shipped in build 01.35:
 
 - Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
 - Bounded Cinder Expanse fields with a scanner and staged scarcity, guard coordination, Nova interception, speed, palette, landmark, HUD, and capped population profiles
+- A closed Flux economy with phase-aware reserve accounting, non-wasteful full inventory, and a telegraphed bounded recovery planetoid that cannot contaminate deterministic/non-scoring modes
+- A priority-ranked player-relative scanner with persistent Engine bearing, hostile bolts, loaded/unloaded Fabricators, Sentinels, loose crystals, mineable planetoids, resource reservations, and retained touch status
 - Mining, shard collection, Fabricators, construction-aware Sentinel pressure/guard/interception roles with a telegraphed three-shot cadence, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
+- Field-policy repair: disabled in Field 01 and limited to one visibly/audibly restored node per eligible later-field loaded-Fabricator delivery
 - Centralized chained scoring with a 1.00×–5.00× HUD multiplier, a locally persisted high score, extra hulls at 25,000 then every 50,000 points, the five-hull cap, and exact clear-time/remaining-hull bonuses
 - Explicit 1.25-second Hull Lost and 5.5-second Arena Clear presentations, protected respawn, preserved score/charge inventory across a loss, scored clear breakdown, field-to-field run preservation, game over, and restart
 - Keyboard, gamepad, and responsive touch controls for phone portrait and landscape, with persisted keyboard rebinding, 5%–40% gamepad dead-zone calibration, hold/toggle primary fire, conflict-safe swaps, and default restoration
@@ -157,6 +164,9 @@ Shipped in build 01.34:
 - [x] Deterministic field-progression tests cover immutable profiles, scarcity and coordination before actor-count growth, visual variants, and bounded late-field tuning.
 - [x] Deterministic Sentinel-behavior tests cover interception priority, construction-driven guard reallocation without count growth, immutable state, and the approach/charge/three-shot/breakaway cadence.
 - [x] Deterministic input-settings tests cover safe persistence sanitization, immutable defaults, conflict-swapping rebinding, radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior.
+- [x] Deterministic Flux-liveness tests cover construction/assault accounting, secure suppression, sanitization, immutable results, and bounded recovery sizing.
+- [x] Deterministic radar tests cover Engine persistence, threat priority, resource reservations, caps, player-relative projection, ties, and malformed inputs.
+- [x] Core delivery tests cover Field 01 repair denial, one-node eligible later-field repair, full-health clamping, and interleaved strike/deposit behavior.
 - [ ] Browser play verifies no pursuit/contact damage during Awakening, predictive contact-warning thresholds and 2.4-second anti-spam, one unshielded hull loss per wave, and complete pause/reset/destruction/game-over cleanup.
 - [ ] Disruption text, warning audio, and non-color ring remain synchronized and readable with Reduced Motion, Reduced Flashing, High Contrast, and FX Off.
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.

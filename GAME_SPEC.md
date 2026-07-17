@@ -1,6 +1,6 @@
 # VOIDFORGE Game Specification
 
-Version: 0.1 · build 01.34
+Version: 0.1 · build 01.35
 Title: **VOIDFORGE**  
 Genre: high-resolution multidirectional arcade shooter
 
@@ -27,6 +27,8 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 6. **Survive:** at 20 modules the Dread Engine enters a 2.5-second in-world Awakening while the camera opens slightly. The Vesper remains controllable, but the Engine brakes and cannot pursue or deal contact damage until alignment completes.
 7. **Strike:** evade its predicted pursuit and radial disruption wave, then launch homing Nova Charges. Planetoids, Sentinels, Fabricators, and hostile bolts can intercept them.
 8. **Advance:** 13 successful hits overload the Dread Engine, clear the Cinder Expanse, and begin a new, harder run.
+
+The resource race must remain live. At a full 20-charge inventory, touching a crystal leaves it in the field rather than deleting it. A deterministic phase-aware reserve check counts unmined, loose, carried, stored, and launched Flux according to whether construction or assault is active. When the remaining reserve cannot complete the mandatory phase, a 1.35-second scanner/audio warning precedes one nearby recovery planetoid carrying 3–6 shards; recovery then observes a 7.5-second cooldown. Tutorial, showcase, profile, paused, destroyed, and scoring-locked states cannot create recovery resources.
 
 The player starts with three hulls. A surviving loss enters a 1.25-second **Hull Lost** presentation, drops no stored charges, resets the score chain, then grants 2 seconds of spawn protection in a nearby safe pocket. The run ends at zero hulls.
 
@@ -93,7 +95,7 @@ The normal first run is a short, non-modal guided flight layered over active pla
 - Fabricator deliveries are held while training is active, and the emitted tutorial crystal receives a persistent shape-based targeting bracket so the learning flow cannot be overtaken by construction or an ambiguous pickup.
 - **Skip** is available at every stage. In the ordinary first-run path, either Skip or completion writes `voidforge-tutorial-v1-complete=true`, preventing the tutorial from appearing on later launches.
 - **Help → Replay guided flight** starts again at Move without clearing or rewriting the saved first-run result.
-- When speech synthesis is supported, the Vesper flight-guide Voice defaults on and speaks each stage once on entry using original input-neutral copy. The first-flight title and Help expose compact Voice on/off controls, persisted as `voidforge-guide-voice`.
+- When speech synthesis is supported, the Vesper flight-guide Voice defaults on and speaks each stage once on entry using original input-neutral copy. The first-flight title and Help expose compact Voice on/off controls, persisted as `voidforge-guide-voice`; touch titles always expose 44px Sound and Voice controls so returning players can set them before the opening cue.
 - `?tutorial=1` forces the normal advancing flow and `?tutorial=0` suppresses it. `?tutorial=move|mine|collect|threat` forces and pins one deterministic stage; `threat` represents Mission loop. All explicit tutorial overrides take precedence and are non-persistent.
 - In the absence of an explicit tutorial override, `?showcase=...` and `?profile=1` suppress onboarding so deterministic captures and performance samples remain unchanged.
 - Phone portrait and landscape layouts enlarge tutorial copy and its Skip/Begin mission controls so onboarding remains readable and operable above the touch controls.
@@ -114,7 +116,7 @@ The normal first run is a short, non-modal guided flight layered over active pla
 
 ### Fabricator
 
-Uses a readable state machine: seek loose shard → tether cargo → route to the Dread Engine → install module → seek again. It avoids direct combat. Loaded drones glow and appear as distinct scanner icons. Destroying one releases its carried shard with inherited velocity.
+Uses a readable state machine: seek loose shard → tether cargo → route to the Dread Engine → install module → seek again. It avoids direct combat. Loaded drones glow and appear as distinct scanner icons. Destroying one releases its carried shard with inherited velocity. Field 01 has no active-Engine repair: a post-activation delivery is spent. From Field 02 onward, a loaded Fabricator reaching a damaged active Engine restores exactly one node, clamps at 13, and emits persistent part restoration plus a distinct repair notice, impact, and sound.
 
 ### Sentinel
 
@@ -170,7 +172,7 @@ Selects deterministically among player pressure, Dread Engine/Fabricator guardin
 - Upper left: score, live multiplier/chain countdown, high score, and field number
 - Upper center: construction meter with 20 module ticks and explicit state label
 - Upper right: hulls and Nova Charge count
-- Lower right: circular scanner with shape-coded contacts, Vesper heading, Dread Engine bearing, and range rings
+- Lower right: circular scanner with shape-coded contacts, Vesper heading, persistent Dread Engine bearing, range rings, and reserved visibility for the nearest loose crystal and mineable planetoid
 - Lower center: short status messages such as `SHARD SECURED`, `MODULE INSTALLED`, and `CHARGE INTERCEPTED`
 - Pause overlay: controls, audio, accessibility, restart, and resume
 - Hull Lost overlay: remaining hulls, preserved Nova inventory, and chain-reset status
@@ -225,10 +227,12 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Automated simulation tests cover forgiving held-fire mining, extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, canonical scoring, arena completion, tutorial event ordering, persistence resolution, and deterministic tutorial overrides. `tests/arcade-run.test.mjs` covers multiplier timing, rounding, multi-threshold extra hulls, the five-hull cap, Hull Lost reset, and the exact Arena Clear formula. `tests/boss-behavior.test.mjs` separately covers the 2.5-second Awakening countdown, bounded pursuit prediction, and swept radial collision helpers exported by `app/game/boss-behavior.mjs`.
 - `app/game/sentinel-behavior.mjs` isolates immutable role allocation and attack cadence from Pixi. `tests/sentinel-behavior.test.mjs` verifies interception priority, construction-driven guard growth without population growth, sanitized state, phase freezing, exactly three spaced shots, and no charge/breakaway fire.
 - `app/game/input-settings.mjs` isolates sanitized persisted calibration and merged input routing. `tests/input-settings.test.mjs` verifies immutable defaults, conflict-swapping rebinds, reserved-key rejection, 5%–40% radial dead-zone behavior, nonzero connected-pad slots, hold/toggle edges, and lock/reset cleanup.
+- `app/game/resource-liveness.mjs` isolates phase-correct Flux-budget accounting and bounded recovery sizing. Its tests cover construction versus assault inventory, secure-state suppression, malformed counts, immutable results, and 3–6-shard recovery bounds.
+- `app/game/radar-contacts.mjs` isolates contact projection and deterministic priority. Its tests cover persistent off-range Engine bearing, threat ordering, nearest-crystal/planetoid reservations, hard caps, player-relative rotation, and malformed inputs. Core tests separately cover Field 01 repair denial plus exactly-one-node eligible later-field repairs.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 - Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
 - Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, mine and contest resources, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, locate mineable bodies and loose Flux on the shape-coded scanner, mine and contest resources without a finite-supply softlock, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, counter explicit later-field repairs, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

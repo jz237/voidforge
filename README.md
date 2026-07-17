@@ -4,7 +4,7 @@
 
 VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, retain control through its Awakening, evade predicted pursuit and radial disruption waves, and destroy it with homing Nova Charges.
 
-Current release: **build 01.34**.
+Current release: **build 01.35**.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
@@ -49,7 +49,7 @@ Touch layout and pointer behavior have been verified with browser mobile viewpor
 
 The first normal run offers a four-stage guided flight: move the Vesper, extract a Flux crystal, follow its targeting bracket to collect it, and review the Fabricator–construction–Nova mission loop. Progress comes from gameplay events rather than a particular control device, so keyboard, gamepad, and touch all advance the same tutorial and actions completed ahead of a prompt are remembered. Fabricator deliveries wait until training ends. **Skip** exits at any stage; normal completion or skipping is saved locally so the tutorial does not repeat. Open **Help** and choose **Replay guided flight** to run it again without changing that saved first-run state.
 
-When browser speech synthesis is available, the optional Vesper flight-guide **Voice** defaults on and speaks each tutorial step once from an original, input-neutral script. A compact **Voice on/off** control appears on the first-flight title and in **Help**, and its preference is stored as `voidforge-guide-voice`. **Sound** remains the master: muting it cancels and suppresses game audio, guide speech, and the Dread Engine's low-pitch dialogue without changing the Voice preference. Muted, disabled, hidden, or unsupported cues are never queued for later playback.
+When browser speech synthesis is available, the optional Vesper flight-guide **Voice** defaults on and speaks each tutorial step once from an original, input-neutral script. A compact **Voice on/off** control appears on the first-flight title and in **Help**, and its preference is stored as `voidforge-guide-voice`. Touch titles always expose 44px **Sound** and **Voice** controls, including for returning pilots, so Android players can set both before the opening cue. **Sound** remains the master: muting it cancels and suppresses game audio, guide speech, and the Dread Engine's low-pitch dialogue without changing the Voice preference. Muted, disabled, hidden, or unsupported cues are never queued for later playback.
 
 Laser fire mines planetoids as well as attacking enemies. Held fire still builds extraction progress and can release Flux, making touch mining forgiving. Short controlled bursts damage the planetoid less and remain the more efficient way to recover its crystals before it breaks.
 
@@ -59,7 +59,7 @@ At 20 installed modules, the Dread Engine enters a 2.5-second in-world Awakening
 
 Inside 1080 world units, an available disruption attack announces a 0.95-second charge with text, warning audio, and a segmented ring that does not depend on color. Its swept front expands from radius 190 to 760 over 0.82 seconds and costs one unshielded hull when crossed. The cooldown is `max(4.8, 6.4 - zone * 0.18)` seconds. Pause freezes the climax state; reset, Engine destruction, and game over clear it. Reduced Motion removes decorative rotation and shake but preserves the true gameplay ring, while Reduced Flashing replaces additive pulses with steady normal-blend warnings.
 
-Construction warnings escalate at 5, 10, 15, and 19 modules. Nova Charges can be intercepted by planetoids, Sentinels, Fabricators, or hostile bolts. Current canonical awards are 100 for a shard, 250 for a loaded Fabricator, 400 for a Sentinel, 750 for an Engine node, and 10,000 for the core.
+Construction warnings escalate at 5, 10, 15, and 19 modules. Nova Charges can be intercepted by planetoids, Sentinels, Fabricators, or hostile bolts. Field 01 keeps Engine repair offline so 13 successful hits remain sufficient; from Field 02 onward, a loaded Fabricator that reaches a damaged active Engine restores exactly one node with a visible and audible repair signal. Current canonical awards are 100 for a shard, 250 for a loaded Fabricator, 400 for a Sentinel, 750 for an Engine node, and 10,000 for the core.
 
 ## Arcade run progression
 
@@ -74,6 +74,10 @@ After 10 idle seconds, the title can enter a silent, non-scoring attract demonst
 Successive fields now use staged pressure profiles instead of relying first on enemy density. Early progression reduces planetoid availability and Flux yield while increasing Fabricator speed, Sentinel guard coordination, and Nova interception pressure before actor counts rise. Later stages continue with bounded population growth. Each profile also changes its pressure label, HUD modifiers, accent palette, and landmark arrangement, while fields beyond the final tuning stage retain their field number without unbounded difficulty growth.
 
 Sentinel tactics now reassign the existing live population among player pressure, Fabricator/Engine guarding, and Nova interception. A valid Nova interception always takes priority, while construction progress shifts more of the same population into guard duty without silently adding enemies. When in range, each attacker follows a readable approach, charge, three-shot burst, and breakaway cadence; charge marks and movement state communicate the cycle before the bolts arrive.
+
+The Flux economy is now closed against unrecoverable runs. A full 20-charge Nova hold leaves collided crystals in the field instead of deleting them. A deterministic reserve check counts unmined shards, loose crystals, loaded Fabricators, stored charges, and launched Novas according to the current phase. If that shared supply cannot finish construction or defeat the active Engine, the scanner and warning audio announce a short Flux-anomaly telegraph before a bounded 3–6-shard planetoid stabilizes near the Vesper. Showcase, profile, tutorial, paused, and scoring-locked states never trigger recovery.
+
+The tactical scanner now reserves contacts for the nearest loose crystal and mineable planetoid while prioritizing the Engine, hostile bolts, Sentinels, and loaded Fabricators. The Engine bearing remains pinned to the scanner edge outside its nominal 2.4-AU range. Every class has a distinct shape, and touch layouts retain the critical scanner status inside the radar instead of hiding it.
 
 ## Accessibility and display
 
@@ -103,10 +107,12 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/field-progression.mjs` — bounded field scarcity, coordination, interception, population, palette, landmark, and HUD profiles
 - `app/game/sentinel-behavior.mjs` — deterministic Sentinel role allocation, construction-driven guarding, and bounded three-shot attack cadence
 - `app/game/input-settings.mjs` — sanitized persisted keyboard bindings, radial gamepad calibration, and merged hold/toggle input routing
-- `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
+- `app/game/resource-liveness.mjs` — deterministic construction/assault Flux-budget accounting and bounded recovery sizing
+- `app/game/radar-contacts.mjs` — deterministic resource-reserving contact priority and player-relative radar projection
+- `app/game/core.mjs` — testable rules for mining, construction, later-field repair policy, homing, collisions, boss damage, and progression
 - `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
-- `tests/` — deterministic attract-mode, field-progression, Sentinel-behavior, input-settings, arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
+- `tests/` — deterministic attract-mode, field-progression, Sentinel-behavior, input-settings, Flux-liveness, radar-priority, arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
 - `artifacts/screenshots/` — the eight required gameplay states at both 1080p and native 4K
 - `RESEARCH.md`, `GAME_SPEC.md`, and `IMPLEMENTATION_NOTES.md` — research boundaries, game specification, and clean-room decisions
 
@@ -114,7 +120,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The boss climax, arcade-run layer, attract demo, staged field pressure, Sentinel tactics, and persisted input calibration are shipped. Remaining work includes additional named arenas, richer multi-source lighting and adaptive audio, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax, arcade-run layer, attract demo, staged field pressure, Sentinel tactics, persisted input calibration, closed Flux economy, objective-aware scanner, and later-field repair policy are shipped. Remaining work includes additional named arenas, richer multi-source lighting and adaptive audio, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 
@@ -127,11 +133,15 @@ Deterministic visual states are available at `/?showcase=exploration`, `mining`,
 
 Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
 
+Integrated Flux-recovery QA uses `/?qa=flux-deficit&tutorial=0`. Starting that run leaves construction one module short with no field reserve, begins the normal scanner/audio telegraph, and then stabilizes the bounded recovery planetoid. QA URLs never write the saved high score.
+
 Automated spoken-guidance checks cover every tutorial line, the selected mission-cue allowlist, once-per-run delivery, the Voice storage-key contract, and no backlog after muted, disabled, hidden, or unsupported cues. Browser checks should confirm the default and persisted Voice choice, Sound-master precedence, immediate cancellation on pause, page hide, game over, Skip, master mute, Voice off, and teardown, and continued visible/live-region guidance.
 
 `tests/attract-mode.test.mjs` verifies the 10-second idle boundary, bounded frame advancement, all four 7.5-second phase transitions, and 30-second loop wrap. `tests/field-progression.test.mjs` verifies deterministic immutable profiles, behavior-and-scarcity escalation before count growth, changing visual identity, and bounded late-field tuning.
 
 `tests/sentinel-behavior.test.mjs` verifies interception priority, construction-driven guard reallocation without population growth, immutable sanitized state, and the approach/charge/exactly-three-shots/breakaway cadence. `tests/input-settings.test.mjs` verifies immutable defaults, safe persistence sanitization, conflict-swapping keyboard rebinding, 5%–40% radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior across locked and reset states.
+
+`tests/resource-liveness.test.mjs` verifies phase-correct reserve accounting, deficit detection, sanitization, immutability, and bounded recovery sizing. `tests/radar-contacts.test.mjs` verifies persistent boss bearing, threat priority, reserved crystal/planetoid slots, deterministic ties, malformed-input handling, and player-relative projection. Core tests additionally verify that Field 01 cannot repair the Engine while eligible later-field deliveries restore exactly one node and clamp at full integrity.
 
 `tests/boss-behavior.test.mjs` verifies the 2.5-second Awakening countdown, bounded velocity-lead prediction, and swept radial collision including tangency and non-expanding waves. Browser climax QA still needs to exercise retained control, warning synchronization, pause/reset/destruction/game-over cleanup, and accessibility variants as live integrated behavior.
 

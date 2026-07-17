@@ -18,6 +18,7 @@ import {
   minePlanetoid,
   normalizeControlVector,
   quantizeThrustMagnitude,
+  resolveFabricatorDelivery,
   seededRandom,
 } from "./core.mjs";
 import {
@@ -55,6 +56,15 @@ import {
 } from "./attract-mode.mjs";
 import { getFieldProgressionProfile } from "./field-progression.mjs";
 import {
+  assessFluxLiveness,
+  recommendedRecoveryShardCount,
+} from "./resource-liveness.mjs";
+import {
+  RADAR_CONTACT_KINDS,
+  projectRadarContact,
+  selectRadarCandidates,
+} from "./radar-contacts.mjs";
+import {
   SENTINEL_ATTACK_PHASES,
   SENTINEL_ROLES,
   advanceSentinelBehavior,
@@ -79,7 +89,14 @@ import {
 
 type ScreenMode = "title" | "attract" | "playing" | "paused" | "gameover";
 type AttractPhase = "mining" | "construction" | "pursuit" | "disruption";
-type ContactKind = "worker" | "warrior" | "boss";
+type ContactKind =
+  | "boss"
+  | "hostileProjectile"
+  | "sentinel"
+  | "loadedFabricator"
+  | "fabricator"
+  | "crystal"
+  | "planetoid";
 type ColorMode = "standard" | "deuteranopia" | "protanopia" | "tritanopia";
 type SentinelRole = "intercept" | "guard" | "pressure";
 type SentinelAttackPhase = "approach" | "charge" | "burst" | "breakaway";
@@ -116,6 +133,9 @@ const HIGH_SCORE_STORAGE_KEY = "voidforge-high-score-v1";
 const HULL_LOST_SECONDS = 1.25;
 const RESPAWN_PROTECTION_SECONDS = 2;
 const ARENA_CLEAR_SECONDS = 5.5;
+const FLUX_RECOVERY_TELEGRAPH_SECONDS = 1.35;
+const FLUX_RECOVERY_COOLDOWN_SECONDS = 7.5;
+const FULL_HOLD_NOTICE_COOLDOWN_SECONDS = 2.8;
 const HELP_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -261,6 +281,7 @@ interface Planetoid extends Entity {
   spin: number;
   fracturePlates: Container[];
   damageStage: number;
+  recoverySource: boolean;
 }
 
 interface Crystal extends Entity {
@@ -719,8 +740,24 @@ function TutorialCoachmark({
 }
 
 function Radar({ contacts, status, danger }: { contacts: RadarContact[]; status: string; danger: number }) {
+  const threatCount = contacts.filter((contact) => (
+    contact.kind === "hostileProjectile" || contact.kind === "sentinel"
+  )).length;
+  const crystalCount = contacts.filter((contact) => contact.kind === "crystal").length;
+  const planetoidCount = contacts.filter((contact) => contact.kind === "planetoid").length;
+  const engineTracked = contacts.some((contact) => contact.kind === "boss");
+  const scannerSummary = [
+    `${threatCount} immediate threat${threatCount === 1 ? "" : "s"}`,
+    `${crystalCount} loose Flux`,
+    `${planetoidCount} mineable bod${planetoidCount === 1 ? "y" : "ies"}`,
+    engineTracked ? "Engine bearing tracked" : "Engine bearing clear",
+  ].join(", ");
   return (
-    <div className={`radar-wrap ${danger > 0.62 ? "danger" : ""}`} aria-label={`Tactical scanner: ${status}`}>
+    <div
+      className={`radar-wrap ${danger > 0.62 ? "danger" : ""}`}
+      role="img"
+      aria-label={`Tactical scanner: ${status}. ${scannerSummary}`}
+    >
       <div className="radar">
         <div className="radar-rings" />
         <div className="radar-sweep" />
@@ -729,6 +766,7 @@ function Radar({ contacts, status, danger }: { contacts: RadarContact[]; status:
           <span
             className={`radar-contact ${contact.kind}`}
             key={`${contact.kind}-${contact.id}`}
+            aria-hidden="true"
             style={{
               left: `${contact.x}%`,
               top: `${contact.y}%`,
@@ -744,6 +782,7 @@ function Radar({ contacts, status, danger }: { contacts: RadarContact[]; status:
       </div>
       <span className="radar-caption">Vector scanner · 2.4 AU</span>
       <span className="radar-status"><i aria-hidden="true" />{status}</span>
+      <span className="radar-mobile-status" aria-hidden="true">{status}</span>
     </div>
   );
 }
@@ -1039,7 +1078,8 @@ export function VoidforgeGame() {
     const runtimeParams = new URLSearchParams(window.location.search);
     const highScorePersistenceEnabled = !runtimeParams.has("showcase")
       && runtimeParams.get("profile") !== "1"
-      && !runtimeParams.has("tutorial");
+      && !runtimeParams.has("tutorial")
+      && !runtimeParams.has("qa");
     let highScore = 0;
     try {
       const storedHighScore = Number(window.localStorage.getItem(HIGH_SCORE_STORAGE_KEY));
@@ -1316,6 +1356,10 @@ export function VoidforgeGame() {
       let novaCooldown = 0;
       let respawnSentinelTimer = 5;
       let respawnFabricatorTimer = 8;
+      let fluxRecoveryCooldown = FLUX_RECOVERY_COOLDOWN_SECONDS;
+      let fluxRecoveryWarning = -1;
+      let fluxRecoveryDeficit = 0;
+      let fullHoldNoticeCooldown = 0;
       let hudTimer = 0;
       let cameraX = RULES.worldWidth * 0.46;
       let cameraY = RULES.worldHeight * 0.5;
@@ -2256,18 +2300,31 @@ export function VoidforgeGame() {
         };
       };
 
-      const spawnPlanetoid = (x: number, y: number, radius = 62 + rng() * 54) => {
+      const spawnPlanetoid = (
+        x: number,
+        y: number,
+        radius = 62 + rng() * 54,
+        shardOverride?: number,
+        recoverySource = false,
+      ) => {
         const { container, cracks, damageLayer, oreGlow, miningPulse, fracturePlates } = makePlanetoidView(radius, Math.floor(rng() * 0x7fffffff));
         container.position.set(x, y);
         terrainLayer.addChild(container);
+        if (recoverySource) {
+          cracks.tint = 0x7fffe0;
+          oreGlow.tint = 0x8fffd6;
+          miningPulse.tint = 0x69f3ff;
+        }
         const planetoid: Planetoid = {
           id: nextId(), x, y, vx: (rng() - 0.5) * 9, vy: (rng() - 0.5) * 9,
           radius, view: container, integrity: 8, maxIntegrity: 8,
-          shards: Math.max(1, Math.round((3 + Math.floor(rng() * 4)) * fieldProfile.planetoidYieldScale)),
+          shards: shardOverride === undefined
+            ? Math.max(1, Math.round((3 + Math.floor(rng() * 4)) * fieldProfile.planetoidYieldScale))
+            : Math.max(1, Math.min(RULES.maxCharges, Math.round(shardOverride))),
           miningProgress: 0, lastHitAt: -1000,
           cracks, damageLayer, oreGlow, miningPulse, miningHeat: 0,
           spin: (rng() < 0.5 ? -1 : 1) * (0.012 + rng() * 0.036),
-          fracturePlates, damageStage: 0,
+          fracturePlates, damageStage: 0, recoverySource,
         };
         planetoids.push(planetoid);
         return planetoid;
@@ -2796,6 +2853,10 @@ export function VoidforgeGame() {
         novaCooldown = 0;
         respawnSentinelTimer = 5;
         respawnFabricatorTimer = 8;
+        fluxRecoveryCooldown = FLUX_RECOVERY_COOLDOWN_SECONDS;
+        fluxRecoveryWarning = -1;
+        fluxRecoveryDeficit = 0;
+        fullHoldNoticeCooldown = 0;
         victoryTimer = 0;
         holdShowcase = false;
         showcaseFrozen = false;
@@ -2867,15 +2928,26 @@ export function VoidforgeGame() {
         if (tutorialActiveRef.current) {
           return;
         }
-        if (engine.active) {
-          if (engine.health < RULES.engineHits) {
-            engine.health += 1;
-            syncEngineParts();
-            notify("FABRICATOR REPAIR SIGNAL", true);
-          }
+        const delivery = resolveFabricatorDelivery({
+          enginePieces: pieces,
+          engineHealth: engine.health,
+          engineActive: engine.active,
+          repairEnabled: zone > 1,
+        });
+        pieces = delivery.enginePieces;
+        if (delivery.kind === "repair") {
+          engine.health = delivery.engineHealth;
+          syncEngineParts();
+          spawnImpactFx(engine.x, engine.y, 0x69f3ff, 118, 0.58);
+          spawnBurst(engine.x, engine.y, 0x8fffd6, 18, 0.54);
+          triggerShockwave(engine.x, engine.y, 0.18, 0.38);
+          audio.construction(engine.health / RULES.engineHits, panFor(engine.x));
+          notify(`ENGINE REPAIR +1 · ${engine.health}/${RULES.engineHits}`, true);
           return;
         }
-        pieces = Math.min(RULES.enginePieces, pieces + 1);
+        if (delivery.kind === "spent") {
+          return;
+        }
         audio.setMusicIntensity(0.12 + (pieces / RULES.enginePieces) * 0.68);
         audio.construction(pieces / RULES.enginePieces, panFor(engine.x));
         spawnBurst(engine.x, engine.y, pieces % 2 ? 0xff8048 : 0x9e71ff, 12, 0.7);
@@ -2889,7 +2961,94 @@ export function VoidforgeGame() {
           );
           if (pieces === 15) speakGuidance("mission:assembly-critical");
         }
-        if (pieces >= RULES.enginePieces) activateEngine();
+        if (delivery.kind === "activate") activateEngine();
+      };
+
+      const spawnFluxRecovery = (deficit: number) => {
+        const shardCount = recommendedRecoveryShardCount(deficit);
+        const awayFromEngine = Math.atan2(player.y - engine.y, player.x - engine.x);
+        const angle = awayFromEngine + (rng() - 0.5) * 1.15;
+        const recoveryRange = 820 + rng() * 260;
+        const x = clamp(
+          player.x + Math.cos(angle) * recoveryRange,
+          240,
+          RULES.worldWidth - 240,
+        );
+        const y = clamp(
+          player.y + Math.sin(angle) * recoveryRange,
+          240,
+          RULES.worldHeight - 240,
+        );
+        const planetoid = spawnPlanetoid(
+          x,
+          y,
+          58 + rng() * 18,
+          shardCount,
+          true,
+        );
+        planetoid.miningHeat = 0.52;
+        planetoid.miningPulse.alpha = localReducedFlashing ? 0.3 : 0.55;
+        spawnImpactFx(x, y, 0x69f3ff, 148, 0.72);
+        spawnBurst(x, y, 0x8fffd6, 24, 0.62);
+        triggerShockwave(x, y, 0.24, 0.42);
+        audio.crystal(panFor(x));
+        notify(`FLUX ANOMALY STABLE · ${shardCount} SHARDS`);
+      };
+
+      const updateFluxRecovery = (dt: number) => {
+        fullHoldNoticeCooldown = Math.max(0, fullHoldNoticeCooldown - dt);
+        const recoveryEligible = localMode === "playing"
+          && !scoringLocked
+          && !engine.destroyed
+          && !tutorialActiveRef.current
+          && !runtimeParams.has("showcase")
+          && runtimeParams.get("profile") !== "1";
+        if (!recoveryEligible) {
+          fluxRecoveryWarning = -1;
+          fluxRecoveryDeficit = 0;
+          return;
+        }
+
+        fluxRecoveryCooldown = Math.max(0, fluxRecoveryCooldown - dt);
+        const assessment = assessFluxLiveness({
+          engineActive: engine.active,
+          enginePieces: pieces,
+          engineHealth: engine.health,
+          charges,
+          planetoidShards: planetoids.reduce((total, planetoid) => (
+            planetoid.dead ? total : total + planetoid.shards
+          ), 0),
+          looseCrystals: crystals.filter((crystal) => !crystal.dead).length,
+          loadedFabricators: fabricators.filter((fabricator) => (
+            !fabricator.dead && fabricator.carrying
+          )).length,
+          inFlightNovas: projectiles.filter((projectile) => (
+            !projectile.dead && projectile.kind === "nova"
+          )).length,
+          enginePiecesMax: RULES.enginePieces,
+        });
+
+        if (!assessment.recoveryNeeded) {
+          fluxRecoveryWarning = -1;
+          fluxRecoveryDeficit = 0;
+          return;
+        }
+
+        fluxRecoveryDeficit = Math.max(fluxRecoveryDeficit, assessment.deficit);
+        if (fluxRecoveryWarning < 0) {
+          if (fluxRecoveryCooldown > 0) return;
+          fluxRecoveryWarning = FLUX_RECOVERY_TELEGRAPH_SECONDS;
+          audio.warning(0.32);
+          notify("FLUX RESERVE COLLAPSE · ANOMALY FORMING", true);
+          return;
+        }
+
+        fluxRecoveryWarning = Math.max(0, fluxRecoveryWarning - dt);
+        if (fluxRecoveryWarning > 0) return;
+        spawnFluxRecovery(fluxRecoveryDeficit);
+        fluxRecoveryWarning = -1;
+        fluxRecoveryDeficit = 0;
+        fluxRecoveryCooldown = FLUX_RECOVERY_COOLDOWN_SECONDS;
       };
 
       const destroyEngine = () => {
@@ -3018,35 +3177,68 @@ export function VoidforgeGame() {
         const range = 2400;
         const contacts: RadarContact[] = [];
         const activeContactIds = new Set<number>();
-        const addContact = (entity: Entity, kind: ContactKind) => {
+        const radarCandidates: Array<{
+          id: number;
+          kind: ContactKind;
+          entity: Entity;
+          x: number;
+          y: number;
+          range: number;
+          inRange: boolean;
+        }> = [];
+        const queueContact = (entity: Entity, kind: ContactKind) => {
           if (entity.dead) return;
-          const dx = entity.x - player.x;
-          const dy = entity.y - player.y;
-          if (Math.abs(dx) > range || Math.abs(dy) > range) return;
-          const cos = Math.cos(-player.angle);
-          const sin = Math.sin(-player.angle);
-          const relativeX = dx * cos - dy * sin;
-          const relativeY = dx * sin + dy * cos;
-          const radarX = clamp(50 + (relativeX / range) * 48, 3, 97);
-          const radarY = clamp(50 + (relativeY / range) * 48, 3, 97);
-          const previous = radarHistory.get(entity.id) ?? { x: radarX, y: radarY };
-          const trailDx = radarX - previous.x;
-          const trailDy = radarY - previous.y;
-          contacts.push({
+          const projection = projectRadarContact({
+            playerX: player.x,
+            playerY: player.y,
+            playerAngle: player.angle,
+            targetX: entity.x,
+            targetY: entity.y,
+            range,
+          });
+          radarCandidates.push({
             id: entity.id,
             kind,
-            x: radarX,
-            y: radarY,
+            entity,
+            x: projection.x,
+            y: projection.y,
+            range: projection.range,
+            inRange: projection.inRange,
+          });
+        };
+        if (!engine.destroyed) queueContact(engine, RADAR_CONTACT_KINDS.BOSS as ContactKind);
+        projectiles
+          .filter((projectile) => projectile.kind === "bolt")
+          .forEach((entity) => queueContact(entity, RADAR_CONTACT_KINDS.HOSTILE_PROJECTILE as ContactKind));
+        sentinels.forEach((entity) => queueContact(entity, RADAR_CONTACT_KINDS.SENTINEL as ContactKind));
+        fabricators.forEach((entity) => queueContact(
+          entity,
+          (entity.carrying
+            ? RADAR_CONTACT_KINDS.LOADED_FABRICATOR
+            : RADAR_CONTACT_KINDS.FABRICATOR) as ContactKind,
+        ));
+        crystals.forEach((entity) => queueContact(entity, RADAR_CONTACT_KINDS.CRYSTAL as ContactKind));
+        planetoids
+          .filter((entity) => entity.shards > 0)
+          .forEach((entity) => queueContact(entity, RADAR_CONTACT_KINDS.PLANETOID as ContactKind));
+
+        const selectedContacts = selectRadarCandidates(radarCandidates, 20) as typeof radarCandidates;
+        for (const candidate of selectedContacts) {
+          const previous = radarHistory.get(candidate.id) ?? { x: candidate.x, y: candidate.y };
+          const trailDx = candidate.x - previous.x;
+          const trailDy = candidate.y - previous.y;
+          contacts.push({
+            id: candidate.id,
+            kind: candidate.kind,
+            x: candidate.x,
+            y: candidate.y,
             heading: Math.atan2(trailDy, trailDx),
             trailLength: clamp(Math.hypot(trailDx, trailDy) * 2.2, 2, 14),
-            range: clamp(Math.hypot(dx, dy) / range, 0, 1),
+            range: candidate.range,
           });
-          radarHistory.set(entity.id, { x: radarX, y: radarY });
-          activeContactIds.add(entity.id);
-        };
-        fabricators.slice(0, 9).forEach((entity) => addContact(entity, "worker"));
-        sentinels.slice(0, 8).forEach((entity) => addContact(entity, "warrior"));
-        if (!engine.destroyed) addContact(engine, "boss");
+          radarHistory.set(candidate.id, { x: candidate.x, y: candidate.y });
+          activeContactIds.add(candidate.id);
+        }
         for (const id of radarHistory.keys()) {
           if (!activeContactIds.has(id)) radarHistory.delete(id);
         }
@@ -3057,7 +3249,7 @@ export function VoidforgeGame() {
         const threatLevel = engine.active
           ? clamp(0.62 + nearbyThreats * 0.035 + (1 - engine.health / RULES.engineHits) * 0.18, 0, 1)
           : clamp(assembly * 0.68 + nearbyThreats * 0.045, 0, 0.82);
-        const tacticalStatus = engine.destroyed
+        let tacticalStatus = engine.destroyed
           ? "FIELD SECURE"
           : engine.active
             ? engine.awakeningRemaining > 0
@@ -3072,6 +3264,12 @@ export function VoidforgeGame() {
               : fabricators.some((fabricator) => !fabricator.dead && fabricator.carrying)
                 ? "FABRICATOR TRANSIT"
                 : nearbyThreats >= 3 ? "WARRIOR SWARM" : "MINE FLUX";
+        if (
+          fluxRecoveryWarning > 0
+          && !["AWAKENING", "BREAK RANGE", "WAVE FRONT", "CORE BREACH"].includes(tacticalStatus)
+        ) {
+          tacticalStatus = "FLUX ANOMALY";
+        }
         setHud({
           score: arcadeRun.score,
           highScore,
@@ -3227,6 +3425,24 @@ export function VoidforgeGame() {
         const tutorialMode = tutorialModeForRun(tutorialOverride);
         if (tutorialMode.enabled) activateTutorial(tutorialMode);
         else disableTutorial();
+        if (runtimeParams.get("qa") === "flux-deficit") {
+          pieces = RULES.enginePieces - 1;
+          charges = 0;
+          fluxRecoveryCooldown = 0.05;
+          planetoids.forEach((planetoid) => {
+            planetoid.dead = true;
+            planetoid.view.visible = false;
+          });
+          crystals.forEach((crystal) => {
+            crystal.dead = true;
+            crystal.view.visible = false;
+          });
+          fabricators.forEach((fabricator) => {
+            fabricator.carrying = false;
+            fabricator.targetId = undefined;
+          });
+          syncEngineParts();
+        }
         setScreenMode("playing");
         setNotice(null);
         void audio.unlock();
@@ -3757,6 +3973,22 @@ export function VoidforgeGame() {
           crystal.trail.alpha = clamp(crystalSpeed / 110, 0.08, 0.62) * localEffectIntensity;
           crystal.trail.scale.x = 0.68 + clamp(crystalSpeed / 120, 0, 1) * 0.72;
           if (circlesOverlap(player, crystal)) {
+            if (charges >= RULES.maxCharges) {
+              const separationAngle = distance(player.x, player.y, crystal.x, crystal.y) > 0.01
+                ? Math.atan2(crystal.y - player.y, crystal.x - player.x)
+                : player.angle + Math.PI;
+              const separation = player.radius + crystal.radius + 10;
+              crystal.x = player.x + Math.cos(separationAngle) * separation;
+              crystal.y = player.y + Math.sin(separationAngle) * separation;
+              crystal.vx = Math.cos(separationAngle) * 145 + player.vx * 0.18;
+              crystal.vy = Math.sin(separationAngle) * 145 + player.vy * 0.18;
+              crystal.view.position.set(crystal.x, crystal.y);
+              if (fullHoldNoticeCooldown <= 0) {
+                fullHoldNoticeCooldown = FULL_HOLD_NOTICE_COOLDOWN_SECONDS;
+                notify("NOVA HOLD FULL · FLUX LEFT IN FIELD");
+              }
+              continue;
+            }
             crystal.dead = true;
             if (tutorialTarget?.id === crystal.id) tutorialTarget = undefined;
             charges = Math.min(RULES.maxCharges, charges + 1);
@@ -4373,6 +4605,8 @@ export function VoidforgeGame() {
           effect.view.alpha = Math.pow(1 - progress, 1.35);
         }
 
+        updateFluxRecovery(dt);
+
         respawnSentinelTimer -= dt;
         respawnFabricatorTimer -= dt;
         if (!engine.destroyed && respawnSentinelTimer <= 0 && sentinels.filter((item) => !item.dead).length < fieldProfile.capCounts.sentinels) {
@@ -4716,6 +4950,7 @@ export function VoidforgeGame() {
         let reticleTarget: Entity | undefined;
         let reticleIsBoss = false;
         let reticleIsTutorial = false;
+        let reticleIsResource = false;
         if (tutorialActiveRef.current && tutorialRuntimeRef.current.step === "collect" && tutorialTarget && !tutorialTarget.dead) {
           reticleTarget = tutorialTarget;
           reticleIsTutorial = true;
@@ -4732,6 +4967,21 @@ export function VoidforgeGame() {
             const d = distance(player.x, player.y, sentinel.x, sentinel.y);
             if (d < bestTargetDistance) { bestTargetDistance = d; reticleTarget = sentinel; }
           }
+          if (!reticleTarget) {
+            const resources: Entity[] = [
+              ...crystals.filter((crystal) => !crystal.dead),
+              ...planetoids.filter((planetoid) => !planetoid.dead && planetoid.shards > 0),
+            ].sort((left, right) => (
+              distance(player.x, player.y, left.x, left.y)
+              - distance(player.x, player.y, right.x, right.y)
+            ));
+            reticleTarget = resources.find((resource) => {
+              const rawX = world.position.x + resource.x * worldScale;
+              const rawY = world.position.y + resource.y * worldScale;
+              return rawX >= 72 && rawX <= width - 72 && rawY >= 90 && rawY <= height - 90;
+            });
+            reticleIsResource = Boolean(reticleTarget);
+          }
         }
         targetReticle.visible = Boolean(reticleTarget) && localMode !== "title";
         if (reticleTarget) {
@@ -4744,10 +4994,26 @@ export function VoidforgeGame() {
             reticleIsTutorial ? clamp(rawX, 54, width - 54) : rawX,
             reticleIsTutorial ? clamp(rawY, tutorialMinY, tutorialMaxY) : rawY,
           );
-          targetReticle.rotation = localReducedFx ? 0 : motionClock * (reticleIsBoss ? -0.18 : reticleIsTutorial ? 0.42 : 0.26);
-          targetReticle.scale.set(hudScale * (reticleIsBoss ? 1.48 : reticleIsTutorial ? 1.18 : 0.86 + visualRhythm * 0.08));
+          targetReticle.rotation = localReducedFx
+            ? 0
+            : motionClock * (reticleIsBoss ? -0.18 : reticleIsTutorial ? 0.42 : reticleIsResource ? 0.16 : 0.26);
+          targetReticle.scale.set(hudScale * (
+            reticleIsBoss
+              ? 1.48
+              : reticleIsTutorial
+                ? 1.18
+                : reticleIsResource
+                  ? 0.72 + visualRhythm * 0.05
+                  : 0.86 + visualRhythm * 0.08
+          ));
           targetReticle.alpha = highContrastRef.current ? 0.9 : localReducedFlashing ? 0.62 : 0.5 + visualRhythm * 0.22;
-          targetReticle.tint = reticleIsBoss ? 0xffa07e : reticleIsTutorial ? 0x75efff : 0xc7f8ff;
+          targetReticle.tint = reticleIsBoss
+            ? 0xffa07e
+            : reticleIsTutorial
+              ? 0x75efff
+              : reticleIsResource
+                ? 0x8fffd6
+                : 0xc7f8ff;
         }
         const thrustHeat = speedRatio > 0.28 ? ((speedRatio - 0.28) / 0.72) * 0.42 : 0;
         const heat = clamp(
@@ -5210,20 +5476,34 @@ export function VoidforgeGame() {
                   <span aria-hidden="true">DEMO</span>
                   Watch mission loop
                 </button>
-                {tutorialRecommended && (
-                  <button
-                    className="voice-toggle"
-                    type="button"
-                    aria-label={voiceSupported ? voiceEnabled ? "Turn flight guide voice off" : "Turn flight guide voice on" : "Flight guide voice unavailable in this browser"}
-                    aria-pressed={voiceEnabled}
-                    disabled={!voiceSupported}
-                    onClick={() => setVoiceEnabled((value) => !value)}
-                  >
-                    <span aria-hidden="true">VOX</span>
-                    {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
-                  </button>
+                {(tutorialRecommended || touchCapable) && (
+                  <div className="title-audio-controls" role="group" aria-label="Title audio controls" data-testid="title-audio-controls">
+                    {touchCapable && (
+                      <button
+                        className="voice-toggle"
+                        type="button"
+                        aria-label={muted ? "Unmute sound" : "Mute sound"}
+                        aria-pressed={muted}
+                        onClick={() => setMuted((value) => !value)}
+                      >
+                        <span aria-hidden="true">SND</span>
+                        {muted ? "Sound off" : "Sound on"}
+                      </button>
+                    )}
+                    <button
+                      className="voice-toggle"
+                      type="button"
+                      aria-label={voiceSupported ? voiceEnabled ? "Turn flight guide voice off" : "Turn flight guide voice on" : "Flight guide voice unavailable in this browser"}
+                      aria-pressed={voiceEnabled}
+                      disabled={!voiceSupported}
+                      onClick={() => setVoiceEnabled((value) => !value)}
+                    >
+                      <span aria-hidden="true">VOX</span>
+                      {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
+                    </button>
+                  </div>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.34<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
+                <span className="version-mark">Vesper flight core · build 01.35<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -5503,7 +5783,9 @@ export function VoidforgeGame() {
               <div><h3>Mine carefully</h3><p>Use {primaryFireBindingLabel} or your aim control to cut Flux. Short controlled bursts preserve the rock and extract more crystals.</p></div>
               <div><h3>Build the chain</h3><p>Score again within 4.5 seconds to raise the multiplier by 0.25×, up to 5.00×. Losing a hull resets it.</p></div>
               <div><h3>Earn extra hulls</h3><p>Your first extra hull arrives at 25,000 points, then every 50,000 points. Vesper can carry up to five hulls.</p></div>
-              <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
+              <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Repairs are offline in Field 01; later fields let loaded Fabricators restore one broken node.</p></div>
+              <div><h3>Read the scanner</h3><p>Shape-coded contacts retain the Engine bearing and reserve space for the nearest loose crystal and mineable planetoid, even when combat is dense.</p></div>
+              <div><h3>Protect the Flux race</h3><p>A full Nova hold leaves crystals in the field instead of wasting them. If the shared supply can no longer finish construction or the assault, a warned Flux anomaly seeds a new mineable body.</p></div>
               <div><h3>Launch Nova Charges</h3><p>Press {novaBindingLabel}, use a gamepad face button, or tap the orange Nova control. Each press launches at most one charge.</p></div>
               <div><h3>Break the wave</h3><p>You keep control while the Engine awakens. When DISRUPTION CHARGE appears, thrust beyond the segmented ring before it expands.</p></div>
               <div><h3>Clear the arena</h3><p>Rupture the core quickly and preserve hulls for a field-clear bonus. Score, hulls, charges, and high score carry into the next field.</p></div>

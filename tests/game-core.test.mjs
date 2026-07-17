@@ -11,6 +11,7 @@ import {
   nextZone,
   normalizeControlVector,
   quantizeThrustMagnitude,
+  resolveFabricatorDelivery,
   seededRandom,
   strikeEngine,
 } from "../app/game/core.mjs";
@@ -58,6 +59,114 @@ test("fabricator deposits activate the Dread Engine at twenty pieces", () => {
   });
   assert.equal(run.enginePieces, RULES.enginePieces);
   assert.equal(run.engineActive, true);
+});
+
+test("fabricator delivery outcomes sanitize construction and activation state", () => {
+  const construction = resolveFabricatorDelivery({
+    enginePieces: -50,
+    engineHealth: 500,
+    engineActive: false,
+    repairEnabled: true,
+  });
+  assert.deepEqual(construction, {
+    kind: "construct",
+    enginePieces: 1,
+    engineHealth: RULES.engineHits,
+    engineActive: false,
+    repaired: false,
+  });
+  assert.equal(Object.isFrozen(construction), true);
+
+  const activation = resolveFabricatorDelivery({
+    enginePieces: RULES.enginePieces - 1,
+    engineHealth: Number.NaN,
+    engineActive: false,
+    repairEnabled: false,
+  });
+  assert.deepEqual(activation, {
+    kind: "activate",
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits,
+    engineActive: true,
+    repaired: false,
+  });
+  assert.equal(Object.isFrozen(activation), true);
+});
+
+test("active Fabricator deliveries report one repair or a spent shard", () => {
+  const repair = resolveFabricatorDelivery({
+    enginePieces: RULES.enginePieces + 8,
+    engineHealth: RULES.engineHits - 2,
+    engineActive: true,
+    repairEnabled: true,
+  });
+  assert.deepEqual(repair, {
+    kind: "repair",
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits - 1,
+    engineActive: true,
+    repaired: true,
+  });
+
+  const disabled = resolveFabricatorDelivery({
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits - 2,
+    engineActive: true,
+    repairEnabled: false,
+  });
+  assert.deepEqual(disabled, {
+    kind: "spent",
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits - 2,
+    engineActive: true,
+    repaired: false,
+  });
+
+  const full = resolveFabricatorDelivery({
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits + 20,
+    engineActive: true,
+    repairEnabled: true,
+  });
+  assert.deepEqual(full, {
+    kind: "spent",
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits,
+    engineActive: true,
+    repaired: false,
+  });
+});
+
+test("interleaved strikes and deposits obey the field repair policy", () => {
+  const base = {
+    zone: 1,
+    marker: "preserved",
+    charges: 6,
+    score: 0,
+    enginePieces: RULES.enginePieces,
+    engineHealth: RULES.engineHits,
+    engineActive: true,
+    zoneComplete: false,
+  };
+
+  const fieldOneHit = strikeEngine(base);
+  const fieldOneDeposit = depositFabricatorShard(fieldOneHit);
+  assert.equal(fieldOneDeposit.engineHealth, RULES.engineHits - 1);
+  assert.equal(fieldOneDeposit.marker, "preserved");
+  assert.equal(fieldOneDeposit.score, 750);
+
+  let laterField = { ...fieldOneDeposit, zone: 2 };
+  laterField = strikeEngine(laterField);
+  assert.equal(laterField.engineHealth, RULES.engineHits - 2);
+  laterField = depositFabricatorShard(laterField);
+  assert.equal(laterField.engineHealth, RULES.engineHits - 1);
+  laterField = depositFabricatorShard(laterField);
+  assert.equal(laterField.engineHealth, RULES.engineHits);
+  laterField = depositFabricatorShard(laterField);
+  assert.equal(laterField.engineHealth, RULES.engineHits);
+
+  const explicitRepair = depositFabricatorShard(fieldOneHit, { repairEnabled: true });
+  assert.equal(explicitRepair.engineHealth, RULES.engineHits);
 });
 
 test("thirteen Nova Charge strikes destroy the active Dread Engine", () => {
