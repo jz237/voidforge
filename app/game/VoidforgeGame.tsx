@@ -43,8 +43,16 @@ import {
   createArcadeRunState,
   loseHull,
 } from "./arcade-run.mjs";
+import {
+  ATTRACT_IDLE_DELAY_SECONDS,
+  advanceAttractTimeline,
+  resetAttractTimeline,
+  resolveAttractTimeline,
+} from "./attract-mode.mjs";
+import { getFieldProgressionProfile } from "./field-progression.mjs";
 
-type ScreenMode = "title" | "playing" | "paused" | "gameover";
+type ScreenMode = "title" | "attract" | "playing" | "paused" | "gameover";
+type AttractPhase = "mining" | "construction" | "pursuit" | "disruption";
 type ContactKind = "worker" | "warrior" | "boss";
 type ColorMode = "standard" | "deuteranopia" | "protanopia" | "tritanopia";
 type TutorialStep = "move" | "mine" | "collect" | "threat";
@@ -93,10 +101,16 @@ interface HudState {
   contacts: RadarContact[];
   threatLevel: number;
   tacticalStatus: string;
+  pressureLabel: string;
+  fieldModifiers: readonly string[];
 }
 
 interface GameApi {
   start: () => void;
+  takeControl: () => void;
+  startAttract: () => void;
+  stopAttract: () => void;
+  resetAttractIdle: () => void;
   startTutorial: () => void;
   restart: () => void;
   tutorialEvent: (event: TutorialEvent) => void;
@@ -332,6 +346,35 @@ const TUTORIAL_COPY: Record<TutorialStep, {
   },
 };
 
+const ATTRACT_COPY: Record<AttractPhase, {
+  kicker: string;
+  title: string;
+  copy: string;
+}> = {
+  mining: {
+    kicker: "Demonstration 01 / 04",
+    title: "Mine Flux",
+    copy: "Cut the illuminated cracks with controlled fire, then fly through each blue Flux crystal to forge a Nova Charge.",
+  },
+  construction: {
+    kicker: "Demonstration 02 / 04",
+    title: "Deny assembly",
+    copy: "Orange Fabricators harvest loose Flux and carry it to the dormant Engine. Break their supply line before all 20 components lock in.",
+  },
+  pursuit: {
+    kicker: "Demonstration 03 / 04",
+    title: "Survive pursuit",
+    copy: "When the Engine wakes, keep moving across its pursuit vector. Violet Sentinels screen the target and can intercept your Novas.",
+  },
+  disruption: {
+    kicker: "Demonstration 04 / 04",
+    title: "Break the wave",
+    copy: "Launch homing Nova Charges at the core, then thrust beyond the segmented disruption ring before the expanding front reaches Vesper.",
+  },
+};
+
+const INITIAL_FIELD_PROFILE = getFieldProgressionProfile(1);
+
 const INITIAL_HUD: HudState = {
   score: 0,
   highScore: 0,
@@ -346,10 +389,16 @@ const INITIAL_HUD: HudState = {
   contacts: [],
   threatLevel: 0,
   tacticalStatus: "SECTOR QUIET",
+  pressureLabel: INITIAL_FIELD_PROFILE.pressureLabel,
+  fieldModifiers: INITIAL_FIELD_PROFILE.hudModifiers,
 };
 
 const EMPTY_API: GameApi = {
   start() {},
+  takeControl() {},
+  startAttract() {},
+  stopAttract() {},
+  resetAttractIdle() {},
   startTutorial() {},
   restart() {},
   tutorialEvent() {},
@@ -470,6 +519,14 @@ function TouchStick({ label, hint, tone, onVector, onEngage }: TouchStickProps) 
 
 function formatScore(score: number) {
   return Math.max(0, score).toString().padStart(7, "0");
+}
+
+function blendColor(base: number, accent: number, weight: number) {
+  const amount = clamp(weight, 0, 1);
+  const channel = (shift: number) => Math.round(
+    ((base >> shift) & 0xff) * (1 - amount) + ((accent >> shift) & 0xff) * amount,
+  );
+  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 
 function MissionBriefing() {
@@ -621,6 +678,12 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
           </div>
         </div>
       </div>
+      <div className="field-modifier-strip" aria-label={`Field pressure: ${hud.pressureLabel}`}>
+        <span className="field-modifier-chip">{hud.pressureLabel}</span>
+        {hud.fieldModifiers.map((modifier) => (
+          <span className="field-modifier-chip" key={modifier}>{modifier}</span>
+        ))}
+      </div>
       <div className="hud-bottom">
         <div className={`construction-panel ${hud.tacticalStatus === "FIELD SECURE" ? "destroyed" : hud.engineActive ? "active" : "building"}`}>
           <div className="construction-header">
@@ -671,6 +734,7 @@ export function VoidforgeGame() {
   const colorModeRef = useRef<ColorMode>("standard");
   const [ready, setReady] = useState(false);
   const [screenMode, setScreenMode] = useState<ScreenMode>("title");
+  const [attractPhase, setAttractPhase] = useState<AttractPhase>("mining");
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [runPhase, setRunPhase] = useState<RunPhaseState>({ kind: "active" });
   const [extraHullAlert, setExtraHullAlert] = useState<{ count: number; key: number } | null>(null);
@@ -1072,6 +1136,7 @@ export function VoidforgeGame() {
       let arcadeRun = createArcadeRunState({ lives: RULES.playerLives });
       let charges = 0;
       let zone = 1;
+      let fieldProfile = getFieldProgressionProfile(zone);
       let pieces = 0;
       let fieldElapsed = 0;
       let hullLostTimer = 0;
@@ -1098,6 +1163,9 @@ export function VoidforgeGame() {
       let shockwaveX = 0;
       let shockwaveY = 0;
       let shockwaveForce = 0;
+      let attractTimeline = resetAttractTimeline();
+      let activeAttractPhase: AttractPhase | null = null;
+      let attractNovaTimer = 0;
 
       const nextId = () => ++idCounter;
 
@@ -1109,7 +1177,7 @@ export function VoidforgeGame() {
         if (speechSupported()) window.speechSynthesis.cancel();
       };
       const speakVoiceLine = (line: string, tone: "guide" | "engine" = "guide", interrupt = true) => {
-        if (!voiceEnabledRef.current || mutedRef.current || document.hidden || !speechSupported()) return;
+        if (localMode === "attract" || !voiceEnabledRef.current || mutedRef.current || document.hidden || !speechSupported()) return;
         if (interrupt) window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(line);
         const requestedLanguage = navigator.language || "en-US";
@@ -1139,6 +1207,7 @@ export function VoidforgeGame() {
       if (speechSupported()) window.speechSynthesis.addEventListener?.("voiceschanged", refreshSpeechVoices);
 
       const notify = (text: string, danger = false) => {
+        if (localMode === "attract") return;
         const key = Date.now() + Math.floor(rng() * 10_000);
         setNotice({ text, danger, key });
         const timer = window.setTimeout(() => {
@@ -1149,6 +1218,7 @@ export function VoidforgeGame() {
       };
 
       const persistHighScore = () => {
+        if (localMode === "attract") return;
         if (arcadeRun.score <= highScore) return;
         highScore = arcadeRun.score;
         if (!highScorePersistenceEnabled) return;
@@ -2016,7 +2086,8 @@ export function VoidforgeGame() {
         const planetoid: Planetoid = {
           id: nextId(), x, y, vx: (rng() - 0.5) * 9, vy: (rng() - 0.5) * 9,
           radius, view: container, integrity: 8, maxIntegrity: 8,
-          shards: 3 + Math.floor(rng() * 4), miningProgress: 0, lastHitAt: -1000,
+          shards: Math.max(1, Math.round((3 + Math.floor(rng() * 4)) * fieldProfile.planetoidYieldScale)),
+          miningProgress: 0, lastHitAt: -1000,
           cracks, damageLayer, oreGlow, miningPulse, miningHeat: 0,
           spin: (rng() < 0.5 ? -1 : 1) * (0.012 + rng() * 0.036),
           fracturePlates, damageStage: 0,
@@ -2133,7 +2204,11 @@ export function VoidforgeGame() {
               engine.y + Math.sin(angle - 0.11) * outer * 0.82,
               engine.x + Math.cos(angle) * outer,
               engine.y + Math.sin(angle) * outer,
-            ).stroke({ color: index % 2 ? 0x7a536e : 0x4d5a78, width: index % 3 === 0 ? 2.2 : 1.1, alpha: 0.15 });
+            ).stroke({
+              color: index % 2 ? fieldProfile.accentColors.energy : fieldProfile.accentColors.ambient,
+              width: index % 3 === 0 ? 2.2 : 1.1,
+              alpha: 0.15,
+            });
         }
         const slag = new PIXI.Graphics();
         for (let index = 0; index < 36; index += 1) {
@@ -2143,15 +2218,63 @@ export function VoidforgeGame() {
           const x = engine.x + Math.cos(angle) * d;
           const y = engine.y + Math.sin(angle) * d;
           slag.poly([x - size, y - size * 0.25, x + size * 0.8, y - size * 0.45, x + size * 0.28, y + size])
-            .fill({ color: index % 3 === 0 ? 0x30222b : 0x171d28, alpha: 0.34 })
-            .stroke({ color: index % 4 === 0 ? 0x955844 : 0x4d5165, width: 0.7, alpha: 0.2 });
+            .fill({ color: index % 3 === 0 ? fieldProfile.accentColors.threat : 0x171d28, alpha: index % 3 === 0 ? 0.16 : 0.34 })
+            .stroke({ color: index % 4 === 0 ? fieldProfile.accentColors.resource : fieldProfile.accentColors.ambient, width: 0.7, alpha: 0.2 });
         }
         storyLayer.addChild(filaments, slag);
-        spawnLandmark(3520, 2480, "wreck", 0.4);
-        spawnLandmark(4910, 3760, "rig", 1.7);
-        spawnLandmark(6200, 2840, "relay", 2.8);
-        spawnLandmark(4040, 3920, "relay", 4.1);
-        spawnLandmark(6870, 3580, "wreck", 5.2);
+        let fieldLandmarks: Array<[number, number, "rig" | "relay" | "wreck", number]>;
+        switch (fieldProfile.landmarkVariant) {
+          case "relay-screen":
+            fieldLandmarks = [
+              [3540, 2460, "relay", 0.4], [4860, 3820, "relay", 1.7],
+              [6240, 2780, "relay", 2.8], [4020, 3940, "wreck", 4.1],
+              [6900, 3500, "relay", 5.2],
+            ];
+            break;
+          case "wreck-belt":
+          case "debris-lanes":
+            fieldLandmarks = [
+              [3440, 2380, "wreck", 0.4], [4520, 3900, "wreck", 1.4],
+              [5820, 2540, "relay", 2.6], [6480, 3720, "wreck", 3.8],
+              [7240, 3020, "wreck", 5.1],
+            ];
+            break;
+          case "mining-rigs":
+            fieldLandmarks = [
+              [3500, 2500, "rig", 0.4], [4720, 3860, "rig", 1.7],
+              [6160, 2760, "rig", 2.8], [6900, 3600, "wreck", 4.2],
+              [3980, 4020, "relay", 5.3],
+            ];
+            break;
+          case "broken-relays":
+            fieldLandmarks = [
+              [3460, 2460, "wreck", 0.4], [4780, 3900, "relay", 1.6],
+              [6100, 2680, "wreck", 2.7], [6860, 3540, "relay", 4.1],
+              [3980, 4020, "wreck", 5.4],
+            ];
+            break;
+          case "forge-ring":
+            fieldLandmarks = [
+              [4700, 2450, "rig", 0.2], [6160, 2460, "relay", 1.4],
+              [6610, 3540, "rig", 2.7], [5420, 4020, "wreck", 3.9],
+              [4380, 3500, "relay", 5.2],
+            ];
+            break;
+          case "dense-mixed":
+            fieldLandmarks = [
+              [3380, 2400, "wreck", 0.2], [4380, 3900, "rig", 1.2],
+              [5180, 2380, "relay", 2.2], [6220, 2660, "wreck", 3.2],
+              [6920, 3580, "rig", 4.2], [5860, 4140, "relay", 5.2],
+            ];
+            break;
+          default:
+            fieldLandmarks = [
+              [3520, 2480, "wreck", 0.4], [4910, 3760, "rig", 1.7],
+              [6200, 2840, "relay", 2.8], [4040, 3920, "relay", 4.1],
+              [6870, 3580, "wreck", 5.2],
+            ];
+        }
+        fieldLandmarks.forEach(([x, y, kind, phase]) => spawnLandmark(x, y, kind, phase));
       };
 
       const createPlayerEchoes = () => {
@@ -2486,15 +2609,22 @@ export function VoidforgeGame() {
             chainSecondsRemaining: 0,
           };
         }
+        fieldProfile = getFieldProgressionProfile(zone);
         pieces = 0;
         fieldElapsed = 0;
         hullLostTimer = 0;
-        scoringLocked = false;
+        scoringLocked = localMode === "attract";
+        fireCooldown = 0;
+        novaCooldown = 0;
+        respawnSentinelTimer = 5;
+        respawnFabricatorTimer = 8;
         victoryTimer = 0;
         holdShowcase = false;
         showcaseFrozen = false;
         motionClock = 0;
         activationPulse = 0;
+        shake = 0;
+        lastGamepadBomb = false;
         shockwaveAge = 99;
         shockwaveForce = 0;
         player = createPlayer();
@@ -2505,16 +2635,18 @@ export function VoidforgeGame() {
           [4650, 2850], [3900, 2500], [4300, 3650], [5050, 3450], [3600, 3200],
           [5050, 2450], [3300, 2700], [6100, 3550],
         ];
-        nearPlayer.forEach(([x, y]) => spawnPlanetoid(x + (rng() - 0.5) * 120, y + (rng() - 0.5) * 120));
-        for (let index = nearPlayer.length; index < 34; index += 1) {
+        nearPlayer
+          .slice(0, fieldProfile.planetoidCount)
+          .forEach(([x, y]) => spawnPlanetoid(x + (rng() - 0.5) * 120, y + (rng() - 0.5) * 120));
+        for (let index = nearPlayer.length; index < fieldProfile.planetoidCount; index += 1) {
           spawnPlanetoid(500 + rng() * (RULES.worldWidth - 1000), 500 + rng() * (RULES.worldHeight - 1000));
         }
-        for (let index = 0; index < 5; index += 1) {
-          const angle = (index / 5) * Math.PI * 2;
+        for (let index = 0; index < fieldProfile.initialCounts.fabricators; index += 1) {
+          const angle = (index / fieldProfile.initialCounts.fabricators) * Math.PI * 2;
           spawnFabricator(engine.x + Math.cos(angle) * (310 + rng() * 160), engine.y + Math.sin(angle) * (310 + rng() * 160));
         }
-        for (let index = 0; index < 3; index += 1) {
-          const angle = (index / 3) * Math.PI * 2 + 0.4;
+        for (let index = 0; index < fieldProfile.initialCounts.sentinels; index += 1) {
+          const angle = (index / fieldProfile.initialCounts.sentinels) * Math.PI * 2 + 0.4;
           spawnSentinel(player.x + Math.cos(angle) * (720 + rng() * 340), player.y + Math.sin(angle) * (720 + rng() * 340));
         }
         cameraX = player.x;
@@ -2767,6 +2899,8 @@ export function VoidforgeGame() {
           lives: arcadeRun.lives,
           charges, zone, pieces, engineHealth: engine.health,
           engineActive: engine.active, contacts, threatLevel, tacticalStatus,
+          pressureLabel: fieldProfile.pressureLabel,
+          fieldModifiers: fieldProfile.hudModifiers,
         });
       };
 
@@ -2787,6 +2921,7 @@ export function VoidforgeGame() {
       const launchNova = () => {
         if (novaCooldown > 0 || charges <= 0) return;
         if (!engine.active || engine.destroyed) {
+          novaCooldown = 0.42;
           notify("NO DREAD ENGINE LOCK");
           return;
         }
@@ -2798,15 +2933,119 @@ export function VoidforgeGame() {
         notify("NOVA CHARGE LOCKED");
       };
 
+      const configureAttractPhase = (phase: AttractPhase) => {
+        activeAttractPhase = phase;
+        setAttractPhase(phase);
+        resetTouchInput(touchInputRef.current);
+        resetWorld(true);
+        scoringLocked = true;
+        player.invulnerable = 999;
+        charges = phase === "mining" ? 4 : RULES.maxCharges;
+        attractNovaTimer = phase === "disruption" ? 0.45 : 0.8;
+
+        if (phase === "mining") {
+          const rock = planetoids[0];
+          if (rock) {
+            rock.integrity = Math.min(5, rock.integrity);
+            rock.miningHeat = 0.72;
+            syncPlanetoidDamage(rock);
+            player.angle = Math.atan2(rock.y - player.y, rock.x - player.x);
+            for (let index = 0; index < 3; index += 1) {
+              spawnCrystal(
+                player.x + 130 + index * 48,
+                player.y - 92 + index * 54,
+                -0.35 + index * 0.22,
+              );
+            }
+          }
+        } else if (phase === "construction") {
+          pieces = 15;
+          player.x = engine.x - 860;
+          player.y = engine.y + 180;
+          player.angle = Math.atan2(engine.y - player.y, engine.x - player.x);
+          fabricators.forEach((fabricator, index) => {
+            const angle = (index / Math.max(1, fabricators.length)) * Math.PI * 2 + 0.3;
+            const radius = 280 + (index % 2) * 90;
+            fabricator.x = engine.x + Math.cos(angle) * radius;
+            fabricator.y = engine.y + Math.sin(angle) * radius;
+            fabricator.carrying = index < 4;
+            fabricator.targetId = undefined;
+          });
+          syncEngineParts();
+        } else {
+          pieces = RULES.enginePieces;
+          syncEngineParts();
+          activateEngine();
+          engine.awakeningRemaining = 0;
+          engine.disruptionCooldown = phase === "disruption" ? 0 : 4.2;
+          engine.disruptionChargeRemaining = phase === "disruption"
+            ? DISRUPTION_CHARGE_SECONDS * 0.78
+            : -1;
+          player.x = engine.x - (phase === "disruption" ? 690 : 940);
+          player.y = engine.y + (phase === "disruption" ? 80 : 260);
+          player.angle = Math.atan2(engine.y - player.y, engine.x - player.x);
+        }
+
+        player.vx = 0;
+        player.vy = 0;
+        player.view.position.set(player.x, player.y);
+        player.view.rotation = player.angle;
+        cameraX = player.x;
+        cameraY = player.y;
+        audio.setMuted(true);
+        audio.setEngineThrust(0);
+        setRunPhase({ kind: "active" });
+        setExtraHullAlert(null);
+        setNotice(null);
+        refreshHud();
+      };
+
+      const startAttract = () => {
+        if (localMode !== "title") return;
+        cancelVoice();
+        spokenGuidance.clear();
+        keys.clear();
+        disableTutorial();
+        localMode = "attract";
+        setScreenMode("attract");
+        attractTimeline = resolveAttractTimeline(ATTRACT_IDLE_DELAY_SECONDS);
+        configureAttractPhase("mining");
+      };
+
+      const stopAttract = () => {
+        if (localMode !== "attract") return;
+        cancelVoice();
+        keys.clear();
+        resetTouchInput(touchInputRef.current);
+        localMode = "title";
+        attractTimeline = resetAttractTimeline();
+        activeAttractPhase = null;
+        resetWorld(true);
+        audio.setMuted(mutedRef.current);
+        audio.setEngineThrust(0);
+        setScreenMode("title");
+        setAttractPhase("mining");
+        setNotice(null);
+        refreshHud();
+      };
+
+      const resetAttractIdle = () => {
+        if (localMode === "title") attractTimeline = resetAttractTimeline();
+      };
+
       const startGame = (tutorialOverride?: "force" | "disable") => {
         cancelVoice();
         spokenGuidance.clear();
+        keys.clear();
         resetTouchInput(touchInputRef.current);
+        localMode = "playing";
+        attractTimeline = resetAttractTimeline();
+        activeAttractPhase = null;
+        audio.setMuted(mutedRef.current);
         resetWorld(true);
         const tutorialMode = tutorialModeForRun(tutorialOverride);
         if (tutorialMode.enabled) activateTutorial(tutorialMode);
         else disableTutorial();
-        localMode = "playing";
         setScreenMode("playing");
         setNotice(null);
         void audio.unlock();
@@ -3009,6 +3248,19 @@ export function VoidforgeGame() {
         const pad = navigator.getGamepads?.()[0];
         const pausePressed = pad?.buttons[9]?.pressed ?? false;
         const confirmPressed = pad?.buttons[0]?.pressed ?? false;
+        const takeoverPressed = Boolean(pad) && (
+          confirmPressed
+          || (pad?.buttons[1]?.pressed ?? false)
+          || (pad?.buttons[2]?.pressed ?? false)
+          || Math.hypot(pad?.axes[0] ?? 0, pad?.axes[1] ?? 0) > 0.24
+          || Math.hypot(pad?.axes[2] ?? 0, pad?.axes[3] ?? 0) > 0.24
+        );
+        if (localMode === "attract" && (takeoverPressed || pausePressed)) {
+          startGame("disable");
+          lastGamepadPause = pausePressed;
+          lastGamepadConfirm = confirmPressed;
+          return;
+        }
         if (pausePressed && !lastGamepadPause) {
           if (localMode === "title" || localMode === "gameover") startGame();
           else togglePause();
@@ -3039,7 +3291,7 @@ export function VoidforgeGame() {
           return;
         }
 
-        if (!engine.destroyed) {
+        if (localMode === "playing" && !engine.destroyed) {
           arcadeRun = advanceScoreChain(arcadeRun, dt);
           if (!tutorialActiveRef.current) fieldElapsed += dt;
         }
@@ -3061,6 +3313,8 @@ export function VoidforgeGame() {
         const pad = navigator.getGamepads?.()[0];
         let padFire = false;
         let padBomb = false;
+        let attractFire = false;
+        let attractNova = false;
         let aimX = touchInput.aimX;
         let aimY = touchInput.aimY;
         if (pad) {
@@ -3077,7 +3331,61 @@ export function VoidforgeGame() {
           padFire = pad.buttons[0]?.pressed ?? false;
           padBomb = (pad.buttons[1]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false);
         }
-        if (localMode !== "playing") return;
+        if (localMode === "attract") {
+          inputX = 0;
+          inputY = 0;
+          aimX = 0;
+          aimY = 0;
+          if (activeAttractPhase === "mining") {
+            const target = nearest(player, planetoids.filter((planetoid) => !planetoid.dead && planetoid.shards > 0));
+            if (target) {
+              const dx = target.x - player.x;
+              const dy = target.y - player.y;
+              const d = Math.max(1, Math.hypot(dx, dy));
+              aimX = dx / d;
+              aimY = dy / d;
+              if (d > target.radius + 380) {
+                inputX = dx / d;
+                inputY = dy / d;
+              } else {
+                inputX = -dy / d * 0.58;
+                inputY = dx / d * 0.58;
+              }
+              attractFire = d < 1040;
+            }
+          } else if (activeAttractPhase === "construction") {
+            const target = nearest(player, fabricators.filter((fabricator) => fabricator.carrying && !fabricator.dead)) ?? engine;
+            const aimDx = target.x - player.x;
+            const aimDy = target.y - player.y;
+            const aimDistance = Math.max(1, Math.hypot(aimDx, aimDy));
+            aimX = aimDx / aimDistance;
+            aimY = aimDy / aimDistance;
+            const engineDx = engine.x - player.x;
+            const engineDy = engine.y - player.y;
+            const engineDistance = Math.max(1, Math.hypot(engineDx, engineDy));
+            inputX = -engineDy / engineDistance * 0.62 + engineDx / engineDistance * (engineDistance > 980 ? 0.45 : -0.16);
+            inputY = engineDx / engineDistance * 0.62 + engineDy / engineDistance * (engineDistance > 980 ? 0.45 : -0.16);
+            attractFire = aimDistance < 1180;
+          } else {
+            const dx = player.x - engine.x;
+            const dy = player.y - engine.y;
+            const d = Math.max(1, Math.hypot(dx, dy));
+            aimX = -dx / d;
+            aimY = -dy / d;
+            const desiredDistance = activeAttractPhase === "disruption" ? 1120 : 920;
+            const radial = d < desiredDistance ? 0.9 : -0.12;
+            inputX = (dx / d) * radial + (-dy / d) * 0.72;
+            inputY = (dy / d) * radial + (dx / d) * 0.72;
+            attractNovaTimer = Math.max(0, attractNovaTimer - dt);
+            if (attractNovaTimer === 0) {
+              attractNova = true;
+              attractNovaTimer = activeAttractPhase === "disruption" ? 0.88 : 1.28;
+            }
+          }
+          padFire = false;
+          padBomb = false;
+        }
+        if (localMode !== "playing" && localMode !== "attract") return;
 
         const controlsLocked = engine.destroyed;
         if (controlsLocked) {
@@ -3183,10 +3491,11 @@ export function VoidforgeGame() {
         audio.setEngineThrust(controlsLocked ? 0 : band);
 
         if (!controlsLocked) {
-          if (keys.has("Space") || padFire || touchInput.firing) launchLaser();
+          if (keys.has("Space") || padFire || touchInput.firing || attractFire) launchLaser();
           if ((keys.has("KeyC") || keys.has("ShiftLeft") || keys.has("ShiftRight")) && novaCooldown <= 0) launchNova();
           if (padBomb && !lastGamepadBomb) launchNova();
           if (touchInput.novaQueued) launchNova();
+          if (attractNova) launchNova();
         }
         touchInput.novaQueued = false;
         lastGamepadBomb = padBomb;
@@ -3270,7 +3579,7 @@ export function VoidforgeGame() {
                 ty = rock.y;
                 if (distance(fabricator.x, fabricator.y, rock.x, rock.y) < rock.radius + 70) {
                   miningActive = true;
-                  fabricator.miningTimer -= dt;
+                  fabricator.miningTimer -= dt * fieldProfile.fabricatorSpeedScale;
                   const beamX = rock.x - fabricator.x;
                   const beamY = rock.y - fabricator.y;
                   fabricator.beam.rotation = -fabricator.view.rotation;
@@ -3309,7 +3618,13 @@ export function VoidforgeGame() {
             fabricator.beam.clear();
             if (distance(fabricator.x, fabricator.y, engine.x, engine.y) < engine.radius + 55) depositPiece(fabricator);
           }
-          steer(fabricator, tx, ty, engine.active ? 188 : 148, dt);
+          steer(
+            fabricator,
+            tx,
+            ty,
+            (engine.active ? 188 : 148) * fieldProfile.fabricatorSpeedScale,
+            dt,
+          );
           fabricator.x += fabricator.vx * dt;
           fabricator.y += fabricator.vy * dt;
           fabricator.view.position.set(fabricator.x, fabricator.y);
@@ -3333,21 +3648,50 @@ export function VoidforgeGame() {
           fabricator.engineFlare.alpha = 0.45 + Math.sin(motionClock * 7 + fabricator.phase) * 0.1;
         }
 
-        for (const sentinel of sentinels) {
-          const dx = player.x - sentinel.x;
-          const dy = player.y - sentinel.y;
+        const coordinatedSentinels = sentinels.filter((sentinel) => !sentinel.dead);
+        for (const sentinel of coordinatedSentinels) {
+          const playerDx = player.x - sentinel.x;
+          const playerDy = player.y - sentinel.y;
+          const playerDistance = Math.max(1, Math.hypot(playerDx, playerDy));
+          const interceptRoll = ((sentinel.id * 37 + zone * 17) % 101) / 100;
+          const guardRoll = ((sentinel.id * 61 + zone * 29) % 103) / 102;
+          const roleIndex = coordinatedSentinels.indexOf(sentinel);
+          const guaranteedInterceptor = (
+            fieldProfile.novaInterceptionBias > 0
+            || (localMode === "attract" && (activeAttractPhase === "pursuit" || activeAttractPhase === "disruption"))
+          ) && roleIndex === 1;
+          const guaranteedGuard = (
+            fieldProfile.guardBias > 0
+            || (localMode === "attract" && activeAttractPhase === "construction")
+          ) && roleIndex === 0;
+          const novaTarget = (guaranteedInterceptor || interceptRoll < fieldProfile.novaInterceptionBias)
+            ? nearest(sentinel, projectiles.filter((projectile) => projectile.kind === "nova" && !projectile.dead))
+            : undefined;
+          const guardTarget = !novaTarget && (guaranteedGuard || guardRoll < fieldProfile.guardBias)
+            ? nearest(sentinel, fabricators.filter((fabricator) => fabricator.carrying && !fabricator.dead))
+            : undefined;
+          const navigationTarget: Entity = novaTarget ?? guardTarget ?? player;
+          const dx = navigationTarget.x - sentinel.x;
+          const dy = navigationTarget.y - sentinel.y;
           const d = Math.max(1, Math.hypot(dx, dy));
           const tangentX = (-dy / d) * sentinel.orbit;
           const tangentY = (dx / d) * sentinel.orbit;
-          const desiredDistance = engine.active ? 560 : 720;
-          const radial = clamp((d - desiredDistance) / desiredDistance, -0.6, 1);
-          const targetX = sentinel.x + (dx / d) * 360 * radial + tangentX * 280;
-          const targetY = sentinel.y + (dy / d) * 360 * radial + tangentY * 280;
-          steer(sentinel, targetX, targetY, engine.active ? 290 : 235, dt);
+          const desiredDistance = novaTarget ? 28 : guardTarget ? 175 : engine.active ? 560 : 720;
+          const radial = clamp((d - desiredDistance) / Math.max(28, desiredDistance), -0.6, 1);
+          const tangentForce = novaTarget ? 32 : guardTarget ? 145 : 280;
+          const targetX = sentinel.x + (dx / d) * 360 * radial + tangentX * tangentForce;
+          const targetY = sentinel.y + (dy / d) * 360 * radial + tangentY * tangentForce;
+          steer(
+            sentinel,
+            targetX,
+            targetY,
+            (engine.active ? 290 : 235) * fieldProfile.sentinelSpeedScale,
+            dt,
+          );
           sentinel.x += sentinel.vx * dt;
           sentinel.y += sentinel.vy * dt;
           sentinel.view.position.set(sentinel.x, sentinel.y);
-          sentinel.view.rotation = Math.atan2(dy, dx);
+          sentinel.view.rotation = Math.atan2(playerDy, playerDx);
           sentinel.shotPulse = Math.max(0, sentinel.shotPulse - dt * 6.5);
           let bankAngle = Math.atan2(sentinel.vy, sentinel.vx) - sentinel.view.rotation;
           while (bankAngle > Math.PI) bankAngle -= Math.PI * 2;
@@ -3358,7 +3702,7 @@ export function VoidforgeGame() {
           sentinel.hull.scale.y = 1 + Math.sin(motionClock * 5.1 + sentinel.phase) * 0.018;
           sentinel.shield.visible = sentinel.health > 1;
           sentinel.shield.rotation = motionClock * 0.72 * sentinel.orbit;
-          const charge = d < 1450 ? clamp((0.42 - sentinel.fireTimer) / 0.42, 0, 1) : 0;
+          const charge = playerDistance < 1450 ? clamp((0.42 - sentinel.fireTimer) / 0.42, 0, 1) : 0;
           sentinel.chargeMarks.alpha = charge * (localReducedFlashing ? 0.58 : 0.72 + Math.sin(motionClock * 12) * 0.2);
           sentinel.chargeMarks.scale.set(0.82 + charge * 0.22);
           sentinel.weaponCore.scale.set(0.92 + Math.sin(motionClock * 6.4 + sentinel.phase) * 0.08 + charge * 0.24);
@@ -3369,10 +3713,10 @@ export function VoidforgeGame() {
           sentinel.engineFlare.y = sentinel.health > 1 ? 0 : 4.5;
           sentinel.engineFlare.rotation = sentinel.health > 1 ? 0 : -0.08;
           sentinel.engineFlare.alpha = 0.48 + Math.sin(motionClock * 8.2 + sentinel.phase) * 0.1;
-          sentinel.fireTimer -= dt;
-          if (sentinel.fireTimer <= 0 && d < 1450) {
+          sentinel.fireTimer -= dt * fieldProfile.sentinelSpeedScale;
+          if (sentinel.fireTimer <= 0 && playerDistance < 1450) {
             sentinel.fireTimer = (engine.active ? 0.82 : 1.25) + rng() * 0.7;
-            const aim = Math.atan2(dy, dx) + (rng() - 0.5) * 0.11;
+            const aim = Math.atan2(playerDy, playerDx) + (rng() - 0.5) * 0.11;
             spawnProjectile("bolt", sentinel.x, sentinel.y, Math.cos(aim) * 385, Math.sin(aim) * 385);
             sentinel.shotPulse = 1;
           }
@@ -3419,7 +3763,13 @@ export function VoidforgeGame() {
             pursuitTargetX = predictedTarget.x;
             pursuitTargetY = predictedTarget.y;
             const chargingWave = engine.disruptionChargeRemaining >= 0;
-            steer(engine, pursuitTargetX, pursuitTargetY, (310 + zone * 13) * (chargingWave ? 0.58 : 1), dt);
+            steer(
+              engine,
+              pursuitTargetX,
+              pursuitTargetY,
+              (310 + fieldProfile.profileStage * 13) * (chargingWave ? 0.58 : 1),
+              dt,
+            );
             engine.x = clamp(engine.x + engine.vx * dt, 220, RULES.worldWidth - 220);
             engine.y = clamp(engine.y + engine.vy * dt, 220, RULES.worldHeight - 220);
             if (circlesOverlap(player, engine)) killPlayer();
@@ -3782,12 +4132,12 @@ export function VoidforgeGame() {
 
         respawnSentinelTimer -= dt;
         respawnFabricatorTimer -= dt;
-        if (!engine.destroyed && respawnSentinelTimer <= 0 && sentinels.filter((item) => !item.dead).length < 4 + zone * 2) {
+        if (!engine.destroyed && respawnSentinelTimer <= 0 && sentinels.filter((item) => !item.dead).length < fieldProfile.capCounts.sentinels) {
           const angle = rng() * Math.PI * 2;
           spawnSentinel(player.x + Math.cos(angle) * 1300, player.y + Math.sin(angle) * 1300);
           respawnSentinelTimer = 4.5 + rng() * 4;
         }
-        if (!engine.destroyed && respawnFabricatorTimer <= 0 && fabricators.filter((item) => !item.dead).length < 5 + zone) {
+        if (!engine.destroyed && respawnFabricatorTimer <= 0 && fabricators.filter((item) => !item.dead).length < fieldProfile.capCounts.fabricators) {
           const angle = rng() * Math.PI * 2;
           spawnFabricator(engine.x + Math.cos(angle) * 650, engine.y + Math.sin(angle) * 650);
           respawnFabricatorTimer = 7 + rng() * 5;
@@ -3801,11 +4151,23 @@ export function VoidforgeGame() {
           if (victoryTimer <= 0 && !holdShowcase) {
             zone += 1;
             resetWorld(false);
-            notify(`FIELD 0${zone} · PRESSURE FRONT`);
+            notify(`FIELD ${zone.toString().padStart(2, "0")} · ${fieldProfile.pressureLabel}`);
           }
         }
 
         sweepDead();
+      };
+
+      const updateAttract = (dt: number) => {
+        const nextTimeline = advanceAttractTimeline(attractTimeline.elapsed, dt);
+        attractTimeline = nextTimeline;
+        if (
+          nextTimeline.phase
+          && (nextTimeline.phaseChanged || activeAttractPhase !== nextTimeline.phase)
+        ) {
+          configureAttractPhase(nextTimeline.phase as AttractPhase);
+        }
+        updateGameplay(dt);
       };
 
       const updateView = (dt: number) => {
@@ -3839,6 +4201,7 @@ export function VoidforgeGame() {
         const speedRatio = clamp(playerSpeed / 535, 0, 1);
         const bossPresent = engine.active && !engine.destroyed;
         const assemblyPressure = engine.destroyed ? 0 : pieces / RULES.enginePieces;
+        const compactLandscapeAttract = compactViewport && width > height && localMode === "attract";
         if (localMode !== "title") {
           const leadAmount = 0.34 + speedRatio * 0.1;
           const leadX = localReducedFx ? 0 : player.vx * leadAmount;
@@ -3850,10 +4213,18 @@ export function VoidforgeGame() {
           const buildInfluence = !bossPresent && assemblyPressure > 0.55
             ? clamp((assemblyPressure - 0.55) * 0.48, 0, 0.2)
             : 0;
-          const bossInfluence = localReducedFx ? Math.min(activeInfluence + buildInfluence, 0.24) : activeInfluence + buildInfluence;
+          const rawBossInfluence = localReducedFx
+            ? Math.min(activeInfluence + buildInfluence, 0.24)
+            : activeInfluence + buildInfluence;
+          const bossInfluence = compactLandscapeAttract
+            ? Math.min(rawBossInfluence, 0.18)
+            : rawBossInfluence;
           focusX = lerp(focusX, engine.x, bossInfluence);
           focusY = lerp(focusY, engine.y, bossInfluence);
-          const revealInfluence = localReducedFx ? 0 : clamp(activationPulse / 2.2, 0, 1) * 0.34;
+          const rawRevealInfluence = localReducedFx ? 0 : clamp(activationPulse / 2.2, 0, 1) * 0.34;
+          const revealInfluence = compactLandscapeAttract
+            ? Math.min(rawRevealInfluence, 0.08)
+            : rawRevealInfluence;
           focusX = lerp(focusX, engine.x, revealInfluence);
           focusY = lerp(focusY, engine.y, revealInfluence);
           const follow = dt > 0 ? 1 - Math.exp(-dt * 3.8) : 1;
@@ -3957,9 +4328,14 @@ export function VoidforgeGame() {
         const shakeY = localReducedFx || dt <= 0 ? 0 : Math.sin(motionClock * 29.1 + 1.7) * trauma * trauma * 15;
         const presentationScale = clamp(viewportRatio, presentationFloor, 2);
         const worldScale = cameraZoom * presentationScale;
-        const cameraCenterY = compactViewport && height > width ? height * 0.43 : height * 0.5;
+        const cameraCenterY = compactViewport && height > width
+          ? localMode === "attract" ? height * 0.67 : height * 0.43
+          : height * 0.5;
         world.scale.set(worldScale);
-        world.position.set(width / 2 - cameraX * worldScale + shakeX, cameraCenterY - cameraY * worldScale + shakeY);
+        const cameraCenterX = compactLandscapeAttract
+          ? width * 0.8
+          : width * 0.5;
+        world.position.set(cameraCenterX - cameraX * worldScale + shakeX, cameraCenterY - cameraY * worldScale + shakeY);
 
         if (app) app.stage.filterArea = app.screen;
         const cssPixels = width * height;
@@ -3983,7 +4359,20 @@ export function VoidforgeGame() {
           clamp(shake / 48, 0, 0.72),
           damageDanger,
         );
-        background.tint = highContrastRef.current ? 0xffffff : bossPresent ? 0xeee7ff : assemblyPressure > 0.65 ? 0xfff4ed : 0xffffff;
+        const fieldBaseTint = blendColor(0xffffff, fieldProfile.accentColors.ambient, 0.2);
+        background.tint = highContrastRef.current
+          ? 0xffffff
+          : bossPresent
+            ? blendColor(fieldBaseTint, fieldProfile.accentColors.energy, 0.14)
+            : assemblyPressure > 0.65
+              ? blendColor(fieldBaseTint, fieldProfile.accentColors.threat, 0.12)
+              : fieldBaseTint;
+        hazeLayer.tint = highContrastRef.current
+          ? 0xffffff
+          : blendColor(0xffffff, fieldProfile.accentColors.ambient, 0.32);
+        storyLayer.tint = highContrastRef.current
+          ? 0xffffff
+          : blendColor(0xffffff, fieldProfile.accentColors.resource, 0.18);
         threatFrame.clear();
         const frameAlpha = danger * localEffectIntensity * (localReducedFlashing ? 0.26 : 0.34);
         if (frameAlpha > 0.025) {
@@ -4164,7 +4553,18 @@ export function VoidforgeGame() {
       app.ticker.add((ticker) => {
         const dt = Math.min(0.033, ticker.deltaMS / 1000);
         pollGamepadMeta();
+        if (localMode === "title" && !document.hidden && !showcaseFrozen) {
+          const focusedElement = document.activeElement instanceof Element ? document.activeElement : null;
+          const titleInteractionActive = helpOpenRef.current
+            || Boolean(focusedElement?.closest("button, input, select, textarea, [role='dialog']"));
+          if (titleInteractionActive) attractTimeline = resetAttractTimeline();
+          else {
+            attractTimeline = advanceAttractTimeline(attractTimeline.elapsed, dt);
+            if (attractTimeline.active) startAttract();
+          }
+        }
         if (localMode === "playing" && !showcaseFrozen) updateGameplay(dt);
+        if (localMode === "attract" && !showcaseFrozen && !document.hidden) updateAttract(dt);
         updateView(showcaseFrozen ? 0 : dt);
         if (profileEnabled && profileElapsed < 2000) {
           profileSamples.push(ticker.deltaMS);
@@ -4202,11 +4602,35 @@ export function VoidforgeGame() {
         if (event.code === "Escape" && helpOpenRef.current) {
           event.preventDefault();
           setHelpOpen(false);
+          resetAttractIdle();
           return;
         }
         const target = event.target instanceof Element ? event.target : null;
         const interactiveTarget = target?.closest("button, input, select, textarea, [role='dialog']");
-        if (interactiveTarget && event.code !== "Escape") return;
+        if (interactiveTarget && event.code !== "Escape") {
+          resetAttractIdle();
+          return;
+        }
+        if (localMode === "attract" && event.code === "Escape") {
+          event.preventDefault();
+          stopAttract();
+          return;
+        }
+        if (
+          localMode === "attract"
+          && [
+            "Enter", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+            "KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "ShiftLeft", "ShiftRight",
+          ].includes(event.code)
+        ) {
+          event.preventDefault();
+          startGame("disable");
+          if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
+            keys.add(event.code);
+          }
+          return;
+        }
+        if (localMode === "title" && event.code !== "Enter") resetAttractIdle();
         if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code) && localMode !== "title") {
           event.preventDefault();
         }
@@ -4238,9 +4662,18 @@ export function VoidforgeGame() {
       };
       const onPageHide = () => { clearInputs(); cancelVoice(); };
       const onOrientationChange = () => clearInputs();
-      const onPointerDown = () => { void audio.unlock(); app?.canvas.focus(); };
+      const onPointerMove = () => resetAttractIdle();
+      const onFocusIn = () => resetAttractIdle();
+      const onPointerDown = () => {
+        if (localMode === "attract") startGame("disable");
+        else if (localMode === "title") resetAttractIdle();
+        else void audio.unlock();
+        app?.canvas.focus();
+      };
       window.addEventListener("keydown", onKeyDown, { passive: false });
       window.addEventListener("keyup", onKeyUp);
+      window.addEventListener("pointermove", onPointerMove, { passive: true });
+      window.addEventListener("focusin", onFocusIn);
       window.addEventListener("blur", onBlur);
       window.addEventListener("pagehide", onPageHide);
       window.addEventListener("orientationchange", onOrientationChange);
@@ -4249,13 +4682,17 @@ export function VoidforgeGame() {
 
       gameApiRef.current = {
         start: startGame,
+        takeControl() { startGame("disable"); },
+        startAttract,
+        stopAttract,
+        resetAttractIdle,
         startTutorial() { startGame("force"); },
         restart: startGame,
         tutorialEvent: applyTutorialEvent,
         togglePause,
         unlockAudio() { void audio.unlock(); },
         setMuted(value) {
-          audio.setMuted(value);
+          audio.setMuted(localMode === "attract" ? true : value);
           if (value) cancelVoice();
         },
         setVoiceEnabled(value) {
@@ -4291,6 +4728,8 @@ export function VoidforgeGame() {
       return () => {
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("focusin", onFocusIn);
         window.removeEventListener("blur", onBlur);
         window.removeEventListener("pagehide", onPageHide);
         window.removeEventListener("orientationchange", onOrientationChange);
@@ -4355,7 +4794,7 @@ export function VoidforgeGame() {
 
   return (
     <main
-      className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${tutorialStep ? `tutorial-step-${tutorialStep}` : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
+      className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${tutorialStep ? `tutorial-step-${tutorialStep}` : ""} ${notice ? "notice-active" : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
       ref={shellRef}
     >
       <div className="game-mount" ref={mountRef} />
@@ -4382,6 +4821,16 @@ export function VoidforgeGame() {
                 >
                   {ready ? tutorialRecommended ? "Start guided flight" : "Enter the Expanse" : "Calibrating field…"}
                 </button>
+                <button
+                  className="voice-toggle"
+                  type="button"
+                  data-testid="start-attract"
+                  disabled={!ready}
+                  onClick={() => gameApiRef.current.startAttract()}
+                >
+                  <span aria-hidden="true">DEMO</span>
+                  Watch mission loop
+                </button>
                 {tutorialRecommended && (
                   <button
                     className="voice-toggle"
@@ -4395,7 +4844,7 @@ export function VoidforgeGame() {
                     {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
                   </button>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.32<br />High score {formatScore(hud.highScore)}</span>
+                <span className="version-mark">Vesper flight core · build 01.33<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -4406,6 +4855,24 @@ export function VoidforgeGame() {
         )}
 
         {screenMode !== "title" && <HeadsUpDisplay hud={hud} />}
+
+        {screenMode === "attract" && (
+          <div className="attract-overlay" data-testid="attract-mode" data-attract-phase={attractPhase}>
+            <section className="attract-panel" aria-live="polite">
+              <p className="attract-kicker">{ATTRACT_COPY[attractPhase].kicker}</p>
+              <h2 className="attract-title">{ATTRACT_COPY[attractPhase].title}</h2>
+              <p className="attract-copy">{ATTRACT_COPY[attractPhase].copy}</p>
+              <div className="attract-actions">
+                <button className="primary-action" type="button" onClick={() => gameApiRef.current.takeControl()}>
+                  Take control
+                </button>
+                <button className="voice-toggle" type="button" onClick={() => gameApiRef.current.stopAttract()}>
+                  Back to briefing
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {touchCapable && screenMode === "playing" && runPhase.kind === "active" && !helpOpen && (
           <section className="touch-controls" aria-label="Touch flight controls" key={touchResetKey}>
@@ -4569,6 +5036,7 @@ export function VoidforgeGame() {
               <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
               <div><h3>Break the wave</h3><p>You keep control while the Engine awakens. When DISRUPTION CHARGE appears, thrust beyond the segmented ring before it expands.</p></div>
               <div><h3>Clear the arena</h3><p>Rupture the core quickly and preserve hulls for a field-clear bonus. Score, hulls, charges, and high score carry into the next field.</p></div>
+              <div><h3>Read field pressure</h3><p>Each new field changes Flux yield, escort coordination, Nova interception, landmarks, and color before later fields add more enemies. The chips below the scanner show the current modifiers.</p></div>
               <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
               <div><h3>Accessibility</h3><p>Reduce motion or flashing, tune effects and color, increase contrast, or disable the optional flight-guide voice. Sound is the master control for game audio and voice.</p></div>
             </div>
@@ -4605,6 +5073,7 @@ export function VoidforgeGame() {
             aria-expanded={helpOpen}
             onClick={() => {
               if (!helpOpen && screenMode === "playing") gameApiRef.current.togglePause();
+              if (!helpOpen && screenMode === "attract") gameApiRef.current.stopAttract();
               setHelpOpen((value) => !value);
             }}
           >

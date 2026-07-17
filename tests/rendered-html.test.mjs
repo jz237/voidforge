@@ -23,6 +23,8 @@ test("server-renders the VOIDFORGE launch screen", async () => {
   assert.match(html, /<title>VOIDFORGE — The Dread Engine Awaits(?: · VOIDFORGE)?<\/title>/i);
   assert.match(html, /A modern arcade odyssey/i);
   assert.match(html, /Start guided flight|Enter the Expanse|Calibrating field/i);
+  assert.match(html, /data-testid="start-attract"/i);
+  assert.match(html, /Watch mission loop/i);
   assert.match(html, /Mission briefing/i);
   assert.match(html, /og:image/i);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
@@ -62,6 +64,13 @@ test("ships the game, arcade-run layer, procedural audio, high-resolution art, a
   assert.match(component, /voidforge-high-score-v1/);
   assert.match(component, /Arena Clear/);
   assert.match(component, /showcase=arena-clear|scene === "arena-clear"/);
+  assert.match(component, /data-testid="attract-mode"/);
+  assert.match(component, /data-attract-phase=/);
+  assert.match(component, /Take control/);
+  assert.match(component, /Back to briefing/);
+  assert.match(component, /className="field-modifier-strip"/);
+  assert.match(component, /Field pressure:/);
+  assert.match(component, /build 01\.33/);
   assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
   assert.match(arcadeRun, /FIRST_EXTRA_HULL_SCORE = 25_000/);
   assert.match(arcadeRun, /awardArenaClearBonus/);
@@ -69,6 +78,8 @@ test("ships the game, arcade-run layer, procedural audio, high-resolution art, a
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /max-height:\s*600px/);
   assert.match(styles, /\.tutorial-panel\b/);
+  assert.match(styles, /\.attract-overlay\b/);
+  assert.match(styles, /\.field-modifier-chip\b/);
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(audio, /class VoidforgeAudio/);
   assert.match(audio, /createOscillator/);

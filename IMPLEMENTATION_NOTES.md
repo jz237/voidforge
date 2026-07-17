@@ -61,6 +61,10 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Keep score, chain, extra-hull, Hull Lost reset, and Arena Clear bonus transactions in `app/game/arcade-run.mjs`. The Pixi runtime owns presentation/timers, but every score mutation passes through the pure module so multi-threshold awards and the five-hull cap remain deterministic.
 - Persist only the sanitized high score under `voidforge-high-score-v1`. New runs reset score and chain; field transitions preserve the run, charges, next hull threshold, and best score. Showcase, profile, and explicit tutorial-QA URLs never write the saved best.
 - Count active field time only after training ends. Pause and Hull Lost freeze both field and chain clocks; Arena Clear snapshots the clock, locks scoring/spawning/input for 5.5 seconds, then resets the field clock and chain for the next pressure front.
+- Keep the title-idle clock and four-phase loop in `app/game/attract-mode.mjs`. Start the silent demonstration after exactly 10 idle seconds, bound frame advancement after suspension, and cycle mining, construction, pursuit, and disruption for 7.5 seconds each.
+- Treat attract play as disposable presentation state: disable score and high-score mutation, suppress game audio and speech, and let player input immediately replace it with a clean normal run.
+- Resolve bounded field tuning through `app/game/field-progression.mjs`. Field 2 changes Flux scarcity, movement pressure, guard behavior, Nova interception, palette, and landmarks before Field 3 increases actor counts; later stages increase density only within explicit caps.
+- Keep field profiles independent of rendering and deeply immutable. The runtime consumes their pressure label, HUD modifiers, palette accents, landmark variant, resource yield, AI biases, speed scales, and initial/cap counts without embedding progression policy in Pixi display objects.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - During the 2.5-second Awakening, retain player control while braking the Engine and suppressing pursuit and boss contact damage. Afterward, derive pursuit lead as `clamp(distance / 1050, 0.42, 1.05)` seconds and clamp the target to 180 px world margins.
 - Emit predictive contact text and warning audio only when the Engine is within 560 units and closing faster than 95 units per second; gate repeats behind a 2.4-second anti-spam cooldown.
@@ -120,8 +124,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 Shipped in the current build:
 
-- Ambient title screen and instructions
-- One balanced Cinder Expanse arena with a bounded world and scanner
+- Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
+- Bounded Cinder Expanse fields with a scanner and staged scarcity, guard coordination, Nova interception, speed, palette, landmark, HUD, and capped population profiles
 - Mining, shard collection, Fabricators, Sentinels, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
 - Centralized chained scoring with a 1.00×–5.00× HUD multiplier, a locally persisted high score, extra hulls at 25,000 then every 50,000 points, the five-hull cap, and exact clear-time/remaining-hull bonuses
 - Explicit 1.25-second Hull Lost and 5.5-second Arena Clear presentations, protected respawn, preserved score/charge inventory across a loss, scored clear breakdown, field-to-field run preservation, game over, and restart
@@ -130,13 +134,12 @@ Shipped in the current build:
 - Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
-- Deterministic test mode, arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
+- Deterministic test mode, attract-mode/field-progression/arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
 
 ## Remaining parity backlog
 
-- Expand the ambient title into an optional, non-persistent gameplay attract demonstration.
-- Make later fields change coordination, resource scarcity, interception pressure, palette, and landmarks before relying on raw enemy-count growth; additional named arenas remain deferred.
 - Add keyboard rebinding, adjustable gamepad dead zone, primary-fire toggle/hold choice, and any remaining independent audio controls promised by the specification.
+- Add additional named arenas beyond the staged Cinder Expanse field profiles.
 - Extend the adaptive score, destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
 - Complete physical-device Safari/Chrome touch validation and longer metadata-bearing 1080p/4K maximum-density profiles with automated thresholds. The existing short profile JSON files remain useful snapshots, not hardware certification.
 - Add browser-level climax checks for retained Awakening control, suppression of premature pursuit/contact damage, predictive contact-warning thresholds and anti-spam, disruption text/audio/ring synchronization, pause freezing, reset/destruction/game-over cleanup, and Reduced Motion/Reduced Flashing behavior.
@@ -149,6 +152,8 @@ Shipped in the current build:
 - [ ] Every critical state has visual, textual, and/or audio redundancy.
 - [x] Deterministic boss tests cover the 2.5-second Awakening countdown, bounded pursuit prediction, and swept-wave collision without tunneling.
 - [x] Deterministic arcade-run tests cover score rounding, the 4.5-second multiplier window, Hull Lost reset, multi-threshold extra hulls, the five-hull cap, and Arena Clear bonuses.
+- [x] Deterministic attract-mode tests cover the 10-second idle boundary, bounded advancement, four-phase timing, and 30-second loop wrap.
+- [x] Deterministic field-progression tests cover immutable profiles, scarcity and coordination before actor-count growth, visual variants, and bounded late-field tuning.
 - [ ] Browser play verifies no pursuit/contact damage during Awakening, predictive contact-warning thresholds and 2.4-second anti-spam, one unshielded hull loss per wave, and complete pause/reset/destruction/game-over cleanup.
 - [ ] Disruption text, warning audio, and non-color ring remain synchronized and readable with Reduced Motion, Reduced Flashing, High Contrast, and FX Off.
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.

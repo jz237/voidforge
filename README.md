@@ -61,6 +61,12 @@ Qualifying score actions use the multiplier visible beside the score, then incre
 
 A surviving hit now enters a short **Hull Lost** presentation, preserves score and Nova Charges, and returns Vesper with two seconds of protection. Destroying the Dread Engine enters a 5.5-second **Arena Clear** summary with core points, clear time, time bonus, remaining-hull bonus, field bonus, run total, and any extra-hull award. Score, hulls, charges, extra-hull progress, and the locally persisted high score continue into the next field. The best score is stored as `voidforge-high-score-v1`; showcase, profile, and explicit tutorial-QA URLs do not write it.
 
+## Attract demo and field pressure
+
+After 10 idle seconds, the title can enter a silent, non-scoring attract demonstration. Its deterministic 30-second loop gives mining, construction, pursuit, and disruption 7.5 seconds each. Demo actions never affect the run score or locally persisted high score, and player input immediately hands off to a fresh controllable run; the title also offers a direct demo action.
+
+Successive fields now use staged pressure profiles instead of relying first on enemy density. Early progression reduces planetoid availability and Flux yield while increasing Fabricator speed, Sentinel guard coordination, and Nova interception pressure before actor counts rise. Later stages continue with bounded population growth. Each profile also changes its pressure label, HUD modifiers, accent palette, and landmark arrangement, while fields beyond the final tuning stage retain their field number without unbounded difficulty growth.
+
 ## Accessibility and display
 
 The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, the master Sound control, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Visible coachmarks and notices remain authoritative, and the polite live-region fallback stays active whenever Voice is off, master Sound is muted, or speech synthesis is unavailable. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
@@ -85,10 +91,12 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/spoken-guidance.mjs` — original guide/Engine copy, persisted Voice policy, cue allowlists, and no-backlog gating
 - `app/game/boss-behavior.mjs` — deterministic Awakening timing, bounded pursuit prediction, and swept radial-wave collision helpers
 - `app/game/arcade-run.mjs` — deterministic multiplier, high-level score transactions, extra hulls, Hull Lost reset, and Arena Clear bonus rules
+- `app/game/attract-mode.mjs` — deterministic title-idle delay and four-phase attract-loop timing
+- `app/game/field-progression.mjs` — bounded field scarcity, coordination, interception, population, palette, landmark, and HUD profiles
 - `app/game/core.mjs` — testable rules for mining, construction, homing, collisions, boss damage, and progression
 - `app/game/tutorial.mjs` — deterministic tutorial progression, first-run resolution, persistence policy, and QA overrides
 - `app/globals.css` — responsive widescreen interface, overlays, HUD, accessibility states, and 4K scaling
-- `tests/` — deterministic arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
+- `tests/` — deterministic attract-mode, field-progression, arcade-run, core, tutorial, spoken-guidance, and boss-behavior tests plus production-render smoke tests
 - `artifacts/screenshots/` — the eight required gameplay states at both 1080p and native 4K
 - `RESEARCH.md`, `GAME_SPEC.md`, and `IMPLEMENTATION_NOTES.md` — research boundaries, game specification, and clean-room decisions
 
@@ -96,7 +104,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The boss climax and surrounding arcade-run layer are shipped. Remaining work includes a true non-persistent attract demonstration; field modifiers that prioritize coordination, scarcity, and interception over raw counts; remaining input customization; physical-device mobile validation; and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax, arcade-run layer, attract demo, and staged field pressure are shipped. Remaining work includes input customization, additional named arenas, broader adaptive audio/destruction/quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 
@@ -110,6 +118,8 @@ Deterministic visual states are available at `/?showcase=exploration`, `mining`,
 Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
 
 Automated spoken-guidance checks cover every tutorial line, the selected mission-cue allowlist, once-per-run delivery, the Voice storage-key contract, and no backlog after muted, disabled, hidden, or unsupported cues. Browser checks should confirm the default and persisted Voice choice, Sound-master precedence, immediate cancellation on pause, page hide, game over, Skip, master mute, Voice off, and teardown, and continued visible/live-region guidance.
+
+`tests/attract-mode.test.mjs` verifies the 10-second idle boundary, bounded frame advancement, all four 7.5-second phase transitions, and 30-second loop wrap. `tests/field-progression.test.mjs` verifies deterministic immutable profiles, behavior-and-scarcity escalation before count growth, changing visual identity, and bounded late-field tuning.
 
 `tests/boss-behavior.test.mjs` verifies the 2.5-second Awakening countdown, bounded velocity-lead prediction, and swept radial collision including tangency and non-expanding waves. Browser climax QA still needs to exercise retained control, warning synchronization, pause/reset/destruction/game-over cleanup, and accessibility variants as live integrated behavior.
 
