@@ -18,11 +18,11 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Resource/weapon | Flux Shards become spiral-guided Nova Charges; new forms, names, trails, and sounds |
 | Construction | Radial machine modules align around a scaffold; no facial assembly |
 | World | Native widescreen wrapping arena with directional camera lead and threat zoom |
-| Graphics | Detailed 2D WebGL art, dynamic lighting, parallax, particles, damage layers, and restrained post-processing |
+| Graphics | Material-rich 2D WebGL art, dynamic lighting, typed particles, layered parallax, damage states, and restrained post-processing |
 | Interface | Widescreen holographic rail, shape-coded contacts, vector icons, and explicit construction ticks |
 | Audio | Original Web Audio synthesis, adaptive layers, spatial effects, and new transmissions |
 | Controls | Analog stick plus six-band keyboard thrust ramp, rebinding, and adjustable dead zone |
-| Accessibility | Reduced motion/flashing, color-vision presets, effect levels, redundant alerts, and audio controls |
+| Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
 | Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
 
 ## Similar mechanics retained intentionally
@@ -55,8 +55,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Seed random generation for reproducible screenshots and automated scenarios.
 - Treat 1920×1080 as the layout coordinate system; resolution and device pixel ratio affect render density, not mechanics.
 - Keep terrain, pickups, enemies, the player, friendly shots, hostile shots, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
-- Run heat haze/refraction, the chromatic danger cue and vignette, and color-vision transforms through one custom PixiJS v8 WebGL pass. The pass uses half resolution at 4K.
-- Fall back gracefully when an optional filter is unavailable. Bloom and distortion must never gate play.
+- Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, danger cues, and color-vision transforms through the custom PixiJS v8 post-processing pipeline.
+- Fall back gracefully when an optional filter is unavailable. Bloom, distortion, and grading must never gate play.
 
 ## Visual guardrails
 
@@ -64,12 +64,14 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Bright backgrounds remain behind a contrast mask or are repositioned away from active combat.
 - Ordered render layers isolate the player and friendly and hostile shots from display-list insertion changes; decorative effects remain constrained so they cannot hide hazards.
 - Camera lead follows travel direction; nearby threats and the Dread Engine produce a smooth, bounded zoom-out.
-- Directional speed streaks and parallax dust/stars respond to velocity, while Fabricators and Sentinels use articulated secondary motion instead of rigid sprite movement.
+- Rebuilt player, enemy, planetoid, and Dread Engine art uses readable material layers, emissive accents, and illuminated damage without weakening silhouettes.
+- Directional speed streaks and far-debris/dust/star parallax respond to velocity, while Fabricators and Sentinels use articulated secondary motion instead of rigid sprite movement.
+- Sparks, shards, smoke, and plasma use typed visual behavior; expanding impact rings and shockwaves remain subordinate to projectiles, pickups, and collision cues.
 - Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone.
-- Localized heat haze/refraction and restrained chromatic danger/vignette effects share one post-processing pass with scene-wide color-vision transforms.
+- Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and restrained danger cues share the post-processing pipeline with scene-wide color-vision transforms.
 - Screen shake is capped, localized where possible, and fully disabled by Reduced Motion.
 - Full-screen white flashes are not used. Reduced Flashing is the safe default if preference detection is unavailable.
-- Reduced Motion, Reduced Flashing, and Effect Intensity directly scale or disable the matching shader, camera, and motion cues.
+- Reduced Motion, Reduced Flashing, Effect Intensity, and FX Off directly scale or disable the matching shader, particle, camera, and motion cues.
 - At 4K, assets gain detail but not smaller apparent size; HUD maintains its 1080p-equivalent measurements.
 - The verified live 4K bombardment profile is 60 FPS average with a 16.8 ms p95 frame time.
 

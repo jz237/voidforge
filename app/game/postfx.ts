@@ -48,32 +48,21 @@ uniform float uTime;
 uniform float uMasterIntensity;
 uniform float uDangerLevel;
 uniform float uHeatLevel;
+uniform float uBloomLevel;
+uniform float uBloomPixels;
+uniform float uGradeLevel;
 uniform float uChromaticPixels;
 uniform float uHeatPixels;
+uniform float uShockLevel;
+uniform float uShockRadius;
+uniform float uShockWidth;
+uniform float uShockPixels;
 uniform float uMotionScale;
 uniform float uFlashScale;
 uniform float uColorProfile;
 uniform vec2 uHeatCenter;
 uniform float uHeatRadius;
-
-float hash21(vec2 point)
-{
-    return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
-}
-
-float valueNoise(vec2 point)
-{
-    vec2 cell = floor(point);
-    vec2 local = fract(point);
-    vec2 blend = local * local * (3.0 - 2.0 * local);
-
-    float a = hash21(cell);
-    float b = hash21(cell + vec2(1.0, 0.0));
-    float c = hash21(cell + vec2(0.0, 1.0));
-    float d = hash21(cell + vec2(1.0, 1.0));
-
-    return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
-}
+uniform vec2 uShockCenter;
 
 vec2 clampToInput(vec2 coordinate)
 {
@@ -86,8 +75,14 @@ void main(void)
     float master = clamp(uMasterIntensity, 0.0, 1.0);
     float danger = clamp(uDangerLevel, 0.0, 1.0) * master;
     float heat = clamp(uHeatLevel, 0.0, 1.0) * master;
+    float bloomStrength = clamp(uBloomLevel, 0.0, 0.45) * master;
+    float shock = clamp(uShockLevel, 0.0, 1.5) * master;
+    float grade = clamp(uGradeLevel, 0.0, 1.0) * master;
 
-    if (danger <= 0.0001 && heat <= 0.0001 && uColorProfile < 0.5) {
+    if (
+        danger <= 0.0001 && heat <= 0.0001 && bloomStrength <= 0.0001
+        && shock <= 0.0001 && grade <= 0.0001 && uColorProfile < 0.5
+    ) {
         finalColor = texture(uTexture, clampToInput(uv));
         return;
     }
@@ -100,8 +95,8 @@ void main(void)
     float heatRadius = max(uHeatRadius, 0.001);
     float heatMask = 1.0 - smoothstep(heatRadius * 0.18, heatRadius, length(fromHeat));
 
-    vec2 noisePoint = vec2(uv.x * 8.0, uv.y * 12.0) + vec2(phase * 0.37, -phase * 0.21);
-    float turbulence = valueNoise(noisePoint) * 2.0 - 1.0;
+    float turbulence = sin(dot(uv * vec2(13.0, 19.0), vec2(1.0, 1.37)) + phase * 1.8) * 0.58
+        + sin(dot(uv * vec2(31.0, 11.0), vec2(-0.83, 1.0)) - phase * 2.3) * 0.42;
     float horizontalWave = sin(uv.y * 92.0 + phase * 5.3 + turbulence * 2.0);
     float verticalWave = sin((uv.x + uv.y) * 47.0 - phase * 3.1);
     vec2 heatVector = vec2(
@@ -122,21 +117,57 @@ void main(void)
         0.93 + sin(uTime * 6.0) * 0.07,
         motion * clamp(uFlashScale, 0.0, 1.0)
     );
+    float chromaticAccessibility = 1.0 - step(0.5, uColorProfile);
     vec2 chromaticOffset = chromaticAxis
         * uInputPixel.zw
         * uChromaticPixels
         * danger
         * temporalDanger
+        * chromaticAccessibility
         * mix(0.52, 1.0, edgeWeight);
 
-    vec2 baseUv = clampToInput(uv + heatOffset);
+    vec2 shockDelta = (uv - uShockCenter) * vec2(aspect, 1.0);
+    float shockDistance = length(shockDelta);
+    float shockRing = 1.0 - smoothstep(
+        max(uShockWidth, 0.001),
+        max(uShockWidth, 0.001) * 2.0,
+        abs(shockDistance - uShockRadius)
+    );
+    vec2 shockDirection = normalize(shockDelta + vec2(0.0001, 0.0));
+    vec2 shockOffset = shockDirection
+        / vec2(aspect, 1.0)
+        * uInputPixel.zw
+        * uShockPixels
+        * shock
+        * shockRing
+        * motion;
+
+    vec2 baseUv = clampToInput(uv + heatOffset + shockOffset);
     vec4 base = texture(uTexture, baseUv);
     vec4 redSample = texture(uTexture, clampToInput(baseUv + chromaticOffset));
     vec4 blueSample = texture(uTexture, clampToInput(baseUv - chromaticOffset));
 
     vec3 color = vec3(redSample.r, base.g, blueSample.b);
+    vec2 bloomStep = uInputPixel.zw * uBloomPixels * vec2(0.7071, -0.7071);
+    vec3 bloomA = texture(uTexture, clampToInput(baseUv + bloomStep)).rgb;
+    vec3 bloomB = texture(uTexture, clampToInput(baseUv - bloomStep)).rgb;
+    float peakA = max(bloomA.r, max(bloomA.g, bloomA.b));
+    float peakB = max(bloomB.r, max(bloomB.g, bloomB.b));
+    vec3 bloom = bloomA * smoothstep(0.66, 0.98, peakA)
+        + bloomB * smoothstep(0.66, 0.98, peakB);
+    color += bloom * 0.5 * bloomStrength;
+
     float vignette = smoothstep(0.38, 0.92, length(radial * vec2(0.72, 1.0)));
     color *= 1.0 - vignette * danger * 0.065;
+
+    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    vec3 gradeTint = mix(
+        vec3(0.965, 0.995, 1.045),
+        vec3(1.045, 1.005, 0.965),
+        smoothstep(0.22, 0.82, luminance)
+    );
+    float accessibleGrade = uColorProfile < 0.5 ? grade : grade * 0.6;
+    color *= mix(vec3(1.0), gradeTint, accessibleGrade);
 
     if (uColorProfile > 0.5 && uColorProfile < 1.5) {
         color = vec3(
@@ -167,13 +198,21 @@ type PostFxUniformStructure = {
   uMasterIntensity: { value: number; type: "f32" };
   uDangerLevel: { value: number; type: "f32" };
   uHeatLevel: { value: number; type: "f32" };
+  uBloomLevel: { value: number; type: "f32" };
+  uBloomPixels: { value: number; type: "f32" };
+  uGradeLevel: { value: number; type: "f32" };
   uChromaticPixels: { value: number; type: "f32" };
   uHeatPixels: { value: number; type: "f32" };
+  uShockLevel: { value: number; type: "f32" };
+  uShockRadius: { value: number; type: "f32" };
+  uShockWidth: { value: number; type: "f32" };
+  uShockPixels: { value: number; type: "f32" };
   uMotionScale: { value: number; type: "f32" };
   uFlashScale: { value: number; type: "f32" };
   uColorProfile: { value: number; type: "f32" };
   uHeatCenter: { value: Float32Array; type: "vec2<f32>" };
   uHeatRadius: { value: number; type: "f32" };
+  uShockCenter: { value: Float32Array; type: "vec2<f32>" };
 };
 
 export interface VoidforgePostFxAccessibility {
@@ -205,6 +244,14 @@ export interface VoidforgePostFxOptions extends FilterOptions, VoidforgePostFxAc
   chromaticPixels?: number;
   /** Maximum heat displacement in physical pixels. */
   heatPixels?: number;
+  /** Selective emissive bloom strength. */
+  bloomLevel?: number;
+  /** Bloom sample separation in physical pixels. */
+  bloomPixels?: number;
+  /** Luminance-preserving cinematic grade strength. */
+  gradeLevel?: number;
+  /** Maximum event shockwave displacement in physical pixels. */
+  shockPixels?: number;
   /** Initial heat source; defaults to the lower-center engine region. */
   heatSource?: VoidforgeHeatSource;
   /** Optional scene-wide color-vision accessibility transform. */
@@ -214,6 +261,15 @@ export interface VoidforgePostFxOptions extends FilterOptions, VoidforgePostFxAc
 export interface VoidforgePostFxLevels {
   danger?: number;
   heat?: number;
+  bloom?: number;
+}
+
+export interface VoidforgeShockwave {
+  x: number;
+  y: number;
+  radius: number;
+  level: number;
+  width?: number;
 }
 
 const clamp = (value: number, minimum: number, maximum: number, fallback: number): number => {
@@ -239,8 +295,12 @@ export class VoidforgePostFx extends Filter {
       reducedFlashing = false,
       dangerLevel = 0,
       heatLevel = 0,
+      bloomLevel = 0.13,
+      bloomPixels = 3.2,
+      gradeLevel = 0.46,
       chromaticPixels = 2.4,
       heatPixels = 4.5,
+      shockPixels = 8.5,
       heatSource = { x: 0.5, y: 0.72, radius: 0.28 },
       colorProfile = "standard",
       ...filterOptions
@@ -251,8 +311,15 @@ export class VoidforgePostFx extends Filter {
       uMasterIntensity: { value: clamp(effectIntensity, 0, 1, 1), type: "f32" },
       uDangerLevel: { value: clamp(dangerLevel, 0, 1, 0), type: "f32" },
       uHeatLevel: { value: clamp(heatLevel, 0, 1, 0), type: "f32" },
+      uBloomLevel: { value: clamp(bloomLevel, 0, 0.45, 0.13), type: "f32" },
+      uBloomPixels: { value: clamp(bloomPixels, 0, 10, 3.2), type: "f32" },
+      uGradeLevel: { value: clamp(gradeLevel, 0, 1, 0.46), type: "f32" },
       uChromaticPixels: { value: clamp(chromaticPixels, 0, 6, 2.4), type: "f32" },
       uHeatPixels: { value: clamp(heatPixels, 0, 12, 4.5), type: "f32" },
+      uShockLevel: { value: 0, type: "f32" },
+      uShockRadius: { value: 0.02, type: "f32" },
+      uShockWidth: { value: 0.012, type: "f32" },
+      uShockPixels: { value: clamp(shockPixels, 0, 18, 8.5), type: "f32" },
       uMotionScale: { value: reducedMotion ? 0 : 1, type: "f32" },
       uFlashScale: { value: reducedFlashing ? 0 : 1, type: "f32" },
       uColorProfile: { value: ["standard", "deuteranopia", "protanopia", "tritanopia"].indexOf(colorProfile), type: "f32" },
@@ -264,11 +331,12 @@ export class VoidforgePostFx extends Filter {
         type: "vec2<f32>",
       },
       uHeatRadius: { value: clamp(heatSource.radius ?? 0.28, 0.02, 2, 0.28), type: "f32" },
+      uShockCenter: { value: new Float32Array([0.5, 0.5]), type: "vec2<f32>" },
     });
 
     super({
       resolution: "inherit",
-      padding: 8,
+      padding: 0,
       antialias: "off",
       ...filterOptions,
       glProgram: GlProgram.from({
@@ -301,6 +369,21 @@ export class VoidforgePostFx extends Filter {
     }
     if (levels.heat !== undefined) {
       uniforms.uHeatLevel = clamp(levels.heat, 0, 1, uniforms.uHeatLevel);
+    }
+    if (levels.bloom !== undefined) {
+      uniforms.uBloomLevel = clamp(levels.bloom, 0, 0.45, uniforms.uBloomLevel);
+    }
+    return this;
+  }
+
+  setShockwave(shockwave: VoidforgeShockwave): this {
+    const uniforms = this.postFxUniforms.uniforms;
+    uniforms.uShockCenter[0] = clamp(shockwave.x, 0, 1, uniforms.uShockCenter[0]);
+    uniforms.uShockCenter[1] = clamp(shockwave.y, 0, 1, uniforms.uShockCenter[1]);
+    uniforms.uShockRadius = clamp(shockwave.radius, 0, 2, uniforms.uShockRadius);
+    uniforms.uShockLevel = clamp(shockwave.level, 0, 1.5, uniforms.uShockLevel);
+    if (shockwave.width !== undefined) {
+      uniforms.uShockWidth = clamp(shockwave.width, 0.002, 0.08, uniforms.uShockWidth);
     }
     return this;
   }
