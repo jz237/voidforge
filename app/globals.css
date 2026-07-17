@@ -120,13 +120,19 @@ button {
 .effect-off .fx-vignette { display: none; }
 
 .reduced-fx .radar-sweep,
-.reduced-fx .radar-dot.boss,
+.reduced-fx .radar-contact.boss .radar-dot,
+.reduced-flashing .radar-contact.boss .radar-dot,
 .reduced-flashing .center-alert {
   animation: none;
 }
 
+.reduced-fx .radar-trail {
+  display: none;
+}
+
 .reduced-fx .tactical-frame,
-.reduced-flashing .tactical-frame {
+.reduced-flashing .tactical-frame,
+.reduced-fx .utility-bar {
   transition: none;
 }
 
@@ -391,6 +397,18 @@ button {
   bottom: 20px;
   display: flex;
   gap: 8px;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.mode-playing .utility-bar {
+  transform: translateY(7px);
+  opacity: 0.34;
+}
+
+.mode-playing .utility-bar:hover,
+.mode-playing .utility-bar:focus-within {
+  transform: translateY(0);
+  opacity: 1;
 }
 
 .utility-button {
@@ -573,8 +591,59 @@ button {
 
 @keyframes radar-sweep { to { transform: rotate(360deg); } }
 
+.radar-player {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 13px;
+  height: 13px;
+  transform: translate(-50%, -50%);
+}
+
+.radar-player i {
+  position: absolute;
+  inset: 3px;
+  transform: rotate(45deg);
+  border: 1px solid rgba(205, 250, 255, 0.9);
+  background: rgba(96, 228, 255, 0.18);
+  box-shadow: 0 0 8px rgba(96, 228, 255, 0.48);
+}
+
+.radar-player b {
+  position: absolute;
+  top: 5px;
+  right: -3px;
+  width: 5px;
+  height: 3px;
+  background: #dfffff;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.radar-contact {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+}
+
+.radar-trail {
+  position: absolute;
+  top: -0.5px;
+  left: 0;
+  width: var(--trail-length, 3px);
+  height: 1px;
+  transform: rotate(calc(var(--trail-angle, 0rad) + 3.1416rad));
+  transform-origin: left center;
+  background: linear-gradient(90deg, currentColor, transparent);
+  opacity: 0.42;
+}
+
 .radar-dot {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 4px;
   height: 4px;
   border-radius: 50%;
@@ -583,10 +652,12 @@ button {
   box-shadow: 0 0 8px currentColor;
 }
 
-.radar-dot.worker { color: var(--amber); background: var(--amber); }
-.radar-dot.worker { border-radius: 0; transform: translate(-50%, -50%) rotate(45deg); }
-.radar-dot.warrior { width: 6px; height: 6px; border-radius: 0; color: #9ba8ff; background: #9ba8ff; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
-.radar-dot.boss { width: 9px; height: 9px; border: 2px solid currentColor; border-radius: 1px; color: var(--danger); background: transparent; animation: pulse-dot 0.72s ease-in-out infinite alternate; }
+.radar-contact.worker { color: var(--amber); }
+.radar-contact.worker .radar-dot { border-radius: 0; transform: translate(-50%, -50%) rotate(45deg); background: var(--amber); }
+.radar-contact.warrior { color: #9ba8ff; }
+.radar-contact.warrior .radar-dot { width: 6px; height: 6px; border-radius: 0; background: #9ba8ff; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.radar-contact.boss { color: var(--danger); }
+.radar-contact.boss .radar-dot { width: 9px; height: 9px; border: 2px solid currentColor; border-radius: 1px; background: transparent; animation: pulse-dot 0.72s ease-in-out infinite alternate; }
 
 @keyframes pulse-dot { to { opacity: 0.35; transform: translate(-50%, -50%) scale(1.7); } }
 
@@ -661,6 +732,15 @@ button {
   font-weight: 800;
 }
 
+.construction-panel.active .construction-header {
+  color: #c8b8df;
+}
+
+.construction-panel.active .construction-header strong {
+  color: #e298ff;
+  text-shadow: 0 0 12px rgba(190, 92, 255, 0.34);
+}
+
 .construction-track {
   display: grid;
   grid-template-columns: repeat(20, 1fr);
@@ -675,13 +755,40 @@ button {
 }
 
 .construction-segment.active {
-  background: linear-gradient(90deg, #fb7c44, #ffbd5c);
+  background: linear-gradient(90deg, #fb7c44, #ffbd5c, #fff0bf, #fb7c44);
+  background-size: 220% 100%;
   box-shadow: 0 0 10px rgba(255, 131, 63, 0.48);
+  animation: assembly-flow 1.6s linear infinite;
 }
 
 .construction-segment.damaged {
   background: linear-gradient(90deg, #8a4fff, #e36eff);
   box-shadow: 0 0 10px rgba(163, 85, 255, 0.5);
+  clip-path: polygon(0 0, 78% 0, 100% 38%, 86% 100%, 0 100%, 12% 48%);
+}
+
+.construction-segment.ruptured {
+  transform: skewX(-18deg) translateY(2px) rotate(2deg);
+  background: linear-gradient(90deg, rgba(255, 103, 67, 0.18), rgba(255, 175, 102, 0.58));
+  clip-path: polygon(0 18%, 32% 0, 55% 28%, 100% 8%, 84% 88%, 45% 67%, 12% 100%);
+  box-shadow: 0 0 8px rgba(255, 112, 64, 0.24);
+}
+
+.construction-panel.destroyed .construction-header {
+  color: #d8e9ef;
+}
+
+.construction-panel.destroyed .construction-header strong {
+  color: #8ff4ff;
+}
+
+@keyframes assembly-flow {
+  to { background-position: -220% 0; }
+}
+
+.reduced-fx .construction-segment.active,
+.reduced-flashing .construction-segment.active {
+  animation: none;
 }
 
 .center-alert {
@@ -908,14 +1015,36 @@ button {
     height: 48px;
   }
 
-  .radar-dot {
+  .radar-contact .radar-dot {
     width: 8px;
     height: 8px;
   }
 
-  .radar-dot.boss {
+  .radar-contact.boss .radar-dot {
     width: 16px;
     height: 16px;
+  }
+
+  .radar-player {
+    width: 26px;
+    height: 26px;
+  }
+
+  .radar-player i {
+    inset: 6px;
+    border-width: 2px;
+  }
+
+  .radar-player b {
+    top: 10px;
+    right: -6px;
+    width: 10px;
+    height: 6px;
+  }
+
+  .radar-trail {
+    width: calc(var(--trail-length, 3px) * 2);
+    height: 2px;
   }
 
   .hud-bottom {

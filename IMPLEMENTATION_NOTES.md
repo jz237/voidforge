@@ -17,10 +17,10 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Enemies | Amber tripod Fabricators and magenta crescent Sentinels with new behaviors |
 | Resource/weapon | Flux Shards become spiral-guided Nova Charges; new forms, names, trails, and sounds |
 | Construction | Radial machine modules align around a scaffold; no facial assembly |
-| World | Native widescreen wrapping arena with directional camera lead and threat zoom |
-| Graphics | Material-rich 2D WebGL art, atmospheric depth, intent-driven animation, projectile trails, damage states, and restrained cinematic post-processing |
-| Interface | Widescreen holographic rail, player-relative scanner, threat status, vector icons, and explicit construction ticks |
-| Audio | Original Web Audio synthesis, adaptive layers, spatial effects, and new transmissions |
+| World | Native widescreen wrapping arena with directional camera lead, threat zoom, story landmarks, and persistent wreckage |
+| Graphics | Material-family 2D WebGL art, headroom-gated 4K microdetail, intent-driven animation, staged damage, and restrained cinematic post-processing |
+| Interface | Contextual holographic HUD, player-relative radar trails, targeting brackets, off-screen warnings, and explicit construction ticks |
+| Audio | Original Web Audio synthesis, adaptive layers, a restrained visual-cadence envelope, spatial effects, and new transmissions |
 | Controls | Analog stick plus six-band keyboard thrust ramp, rebinding, and adjustable dead zone |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
 | Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
@@ -51,10 +51,12 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - PixiJS is preferred over Phaser because the current project already includes it and the design benefits from explicit render-layer and shader control.
 - Simulation state should remain independent of Pixi display objects so mechanics can be tested deterministically.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
-- Pool shots, charges, enemy projectiles, debris, and high-frequency particles.
+- Pool or cap shots, charges, enemy projectiles, persistent wreckage, debris, and high-frequency particles.
 - Seed random generation for reproducible screenshots and automated scenarios.
 - Treat 1920×1080 as the layout coordinate system; resolution and device pixel ratio affect render density, not mechanics.
-- Keep haze, debris, terrain, pickups, enemies, the player, friendly shots, hostile shots, readability cues, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
+- Keep haze, story landmarks, debris, terrain, wreckage, pickups, enemies, the player, friendly shots, hostile shots, targeting/warning cues, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
+- Prebuild optional microdetail and enable it only at high render density with sustained frame-time headroom; detail changes must never alter collision geometry or silhouettes.
+- Derive restrained visual cadence from the original adaptive score envelope, with a deterministic clock before browser audio unlocks.
 - Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and color-vision transforms through the custom PixiJS v8 post-processing pipeline.
 - Fall back gracefully when an optional filter is unavailable. Bloom, distortion, and grading must never gate play.
 
@@ -62,23 +64,25 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 - Gameplay silhouettes must read with bloom and color removed.
 - Bright backgrounds remain behind a contrast mask or are repositioned away from active combat.
-- Atmospheric haze and near/far debris add depth below the protected player, pickup, critical-projectile, and readability layers; decorative effects cannot hide hazards.
-- Camera lead follows travel direction; nearby threats and the Dread Engine produce a smooth, bounded zoom-out.
-- Rebuilt player, enemy, planetoid, and Dread Engine art uses readable material layers, emissive accents, and illuminated damage without weakening silhouettes.
+- Atmospheric haze, near/far debris, abandoned rigs, relays, slag fields, and wreck landmarks add narrative depth below the protected player, pickup, critical-projectile, and readability layers.
+- Camera lead follows travel direction; speed streaks and delayed Vesper echoes communicate acceleration, while nearby threats and the Dread Engine produce a smooth, bounded zoom-out.
+- Player, enemy, planetoid, and Dread Engine art uses distinct composite, mineral, industrial, and containment material families. Fine panel, fastener, inclusion, and conduit detail appears only at 4K with sufficient measured headroom.
 - Vesper shield response, recoil, and muzzle flash remain localized around the ship and never replace collision or ammunition feedback.
 - Mining pulses expose extraction timing, while crystal motion preserves a stable collectible silhouette and predictable pickup path.
 - Directional speed streaks and debris/dust/star parallax respond to velocity; Fabricators and Sentinels use intent-driven poses for mining, carrying, pursuit, and attack instead of rigid sprite movement.
 - Friendly, hostile, and Nova projectile trails retain distinct shapes and protected contrast at speed rather than relying only on hue.
-- The Dread Engine's asymmetric clusters, targeting beam, and contained aura communicate orientation and attack intent without facial imagery.
+- Fracture stages, disabled systems, persistent capped wreckage, exposed conduits, scorch nodes, and per-hit module disassembly make damage readable after transient effects fade.
+- The Dread Engine's asymmetric clusters, targeting beam, and contained aura communicate orientation without facial imagery; lock, surge, and vent phases telegraph changes in pursuit intent.
 - Sparks, shards, smoke, and plasma use typed visual behavior; expanding impact rings and shockwaves remain subordinate to projectiles, pickups, and collision cues.
 - Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone.
 - Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and cinematic trauma/danger framing share the post-processing pipeline with scene-wide color-vision transforms.
-- HUD threat status and the player-relative scanner redundantly identify immediate danger, contact type, bearing, and Dread Engine state.
+- The adaptive-score envelope synchronizes restrained conduit, beacon, reticle, and machinery cadence; Reduced Flashing replaces luminance pulses with stable states.
+- Contextual HUD status, player-relative radar trails, protected targeting brackets, and persistent boss/Sentinel/projectile edge warnings redundantly identify danger, contact type, motion, bearing, and Dread Engine state.
 - Screen shake is capped, localized where possible, and fully disabled by Reduced Motion.
 - Full-screen white flashes are not used. Reduced Flashing is the safe default if preference detection is unavailable.
-- Reduced Motion, Reduced Flashing, Effect Intensity, and FX Off directly scale or disable the matching shader, particle, camera, and motion cues.
+- Reduced Motion, Reduced Flashing, High Contrast, Effect Intensity, FX Off, and automatic microdetail gating directly scale or disable matching shader, particle, camera, motion, and decorative-detail cues without hiding essential warnings.
 - At 4K, assets gain detail but not smaller apparent size; HUD maintains its 1080p-equivalent measurements.
-- Live verification holds 60 FPS at both 1920×1080 and 3840×2160; the 4K bombardment profile records a 16.8 ms p95 frame time.
+- The particle-heavy bombardment profile measures 60 FPS at both 1920×1080 and 3840×2160; the 4K run records a 16.8 ms p95 frame time.
 
 ## Audio guardrails
 

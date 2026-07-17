@@ -221,6 +221,21 @@ export class VoidforgeAudio {
     this.applyMusicIntensity();
   }
 
+  /**
+   * Return a restrained visual envelope synchronized to the adaptive rhythm.
+   * The fallback clock keeps presentation cues deterministic before Web Audio
+   * is unlocked; no audio samples or user media are inspected.
+   */
+  public getVisualPulse(fallbackSeconds = 0): number {
+    const contextSeconds = this.context !== null && this.context.state === "running"
+      ? this.context.currentTime
+      : fallbackSeconds;
+    const rate = 1.7 + this.musicIntensity * 2.75;
+    const phase = (contextSeconds * rate) % 1;
+    const crest = Math.pow(Math.max(0, Math.cos(phase * Math.PI * 2)), 6);
+    return crest * this.musicIntensity;
+  }
+
   /** Tight descending energy bolt. `pan` is normalized from -1 to 1. */
   public laser(pan = 0): void {
     this.tone({
