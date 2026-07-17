@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Application, Container, Graphics, Sprite } from "pixi.js";
 import { VoidforgeAudio } from "./audio";
 import {
@@ -12,6 +12,8 @@ import {
   homingVelocity,
   lerp,
   minePlanetoid,
+  normalizeControlVector,
+  quantizeThrustMagnitude,
   seededRandom,
 } from "./core.mjs";
 
@@ -46,12 +48,30 @@ interface GameApi {
   start: () => void;
   restart: () => void;
   togglePause: () => void;
+  unlockAudio: () => void;
   setMuted: (muted: boolean) => void;
   setReducedFx: (reduced: boolean) => void;
   setReducedFlashing: (reduced: boolean) => void;
   setEffectIntensity: (intensity: number) => void;
   setHighContrast: (enabled: boolean) => void;
   setColorMode: (mode: ColorMode) => void;
+}
+
+interface TouchInputState {
+  moveX: number;
+  moveY: number;
+  aimX: number;
+  aimY: number;
+  firing: boolean;
+  novaQueued: boolean;
+}
+
+interface TouchStickProps {
+  label: string;
+  hint: string;
+  tone: "thrust" | "fire";
+  onVector: (x: number, y: number, active: boolean) => void;
+  onEngage: () => void;
 }
 
 interface Entity {
@@ -223,6 +243,7 @@ const EMPTY_API: GameApi = {
   start() {},
   restart() {},
   togglePause() {},
+  unlockAudio() {},
   setMuted() {},
   setReducedFx() {},
   setReducedFlashing() {},
@@ -230,6 +251,110 @@ const EMPTY_API: GameApi = {
   setHighContrast() {},
   setColorMode() {},
 };
+
+function createTouchInput(): TouchInputState {
+  return {
+    moveX: 0,
+    moveY: 0,
+    aimX: 0,
+    aimY: 0,
+    firing: false,
+    novaQueued: false,
+  };
+}
+
+function resetTouchInput(input: TouchInputState) {
+  input.moveX = 0;
+  input.moveY = 0;
+  input.aimX = 0;
+  input.aimY = 0;
+  input.firing = false;
+  input.novaQueued = false;
+}
+
+function TouchStick({ label, hint, tone, onVector, onEngage }: TouchStickProps) {
+  const baseRef = useRef<HTMLDivElement>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const onVectorRef = useRef(onVector);
+  const [visual, setVisual] = useState({ x: 0, y: 0, active: false });
+
+  useEffect(() => {
+    onVectorRef.current = onVector;
+  }, [onVector]);
+
+  useEffect(() => () => {
+    onVectorRef.current(0, 0, false);
+  }, []);
+
+  const updateVector = (clientX: number, clientY: number) => {
+    const base = baseRef.current;
+    if (!base) return;
+    const rect = base.getBoundingClientRect();
+    const maxOffset = Math.max(24, Math.min(rect.width, rect.height) * 0.3);
+    const vector = normalizeControlVector(
+      clientX - (rect.left + rect.width / 2),
+      clientY - (rect.top + rect.height / 2),
+      maxOffset,
+      0.08,
+    );
+    setVisual({ x: vector.x * maxOffset, y: vector.y * maxOffset, active: true });
+    onVectorRef.current(vector.x, vector.y, true);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pointerIdRef.current = event.pointerId;
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Older embedded browsers may not expose capture for every synthetic pointer.
+    }
+    onEngage();
+    updateVector(event.clientX, event.clientY);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    updateVector(event.clientX, event.clientY);
+  };
+
+  const releasePointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    pointerIdRef.current = null;
+    setVisual({ x: 0, y: 0, active: false });
+    onVectorRef.current(0, 0, false);
+  };
+
+  return (
+    <div
+      className={`touch-stick touch-stick-${tone} ${visual.active ? "active" : ""}`}
+      ref={baseRef}
+      role="group"
+      aria-label={label}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={releasePointer}
+      onPointerCancel={releasePointer}
+      onLostPointerCapture={releasePointer}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <span className="touch-stick-grid" aria-hidden="true" />
+      <span
+        className="touch-stick-knob"
+        aria-hidden="true"
+        style={{ transform: `translate3d(calc(-50% + ${visual.x}px), calc(-50% + ${visual.y}px), 0)` }}
+      >
+        <i />
+      </span>
+      <span className="touch-stick-label">{label}</span>
+      <span className="touch-stick-hint">{hint}</span>
+    </div>
+  );
+}
 
 function formatScore(score: number) {
   return Math.max(0, score).toString().padStart(7, "0");
@@ -258,6 +383,7 @@ function MissionBriefing() {
           <span><span className="keycap">WASD</span>Thrust</span>
           <span><span className="keycap">SPACE</span>Laser</span>
           <span><span className="keycap">C</span>Nova</span>
+          <span><span className="keycap">TOUCH</span>Twin-stick</span>
         </div>
       </div>
     </aside>
@@ -361,6 +487,8 @@ export function VoidforgeGame() {
   const mountRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLElement>(null);
   const gameApiRef = useRef<GameApi>(EMPTY_API);
+  const touchInputRef = useRef<TouchInputState>(createTouchInput());
+  const helpOpenRef = useRef(false);
   const mutedRef = useRef(false);
   const reducedFxRef = useRef(false);
   const reducedFlashingRef = useRef(false);
@@ -378,6 +506,9 @@ export function VoidforgeGame() {
   const [colorMode, setColorMode] = useState<ColorMode>("standard");
   const [highContrast, setHighContrast] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [touchCapable, setTouchCapable] = useState(false);
+  const [touchSouthpaw, setTouchSouthpaw] = useState(false);
+  const [touchResetKey, setTouchResetKey] = useState(0);
 
   useEffect(() => {
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -397,6 +528,23 @@ export function VoidforgeGame() {
       setColorMode(storedColorMode as ColorMode);
     }
     setHighContrast(storedContrast);
+  }, []);
+
+  useEffect(() => {
+    const coarsePointer = window.matchMedia("(pointer: coarse)");
+    const forced = new URLSearchParams(window.location.search).get("touch") === "1";
+    const updateCapability = () => {
+      const compactTouchDevice = navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) < 900;
+      // The query flag makes deterministic mobile QA possible without changing production defaults.
+      setTouchCapable(forced || coarsePointer.matches || compactTouchDevice);
+    };
+    updateCapability();
+    coarsePointer.addEventListener?.("change", updateCapability);
+    window.addEventListener("resize", updateCapability);
+    return () => {
+      coarsePointer.removeEventListener?.("change", updateCapability);
+      window.removeEventListener("resize", updateCapability);
+    };
   }, []);
 
   useEffect(() => {
@@ -434,6 +582,10 @@ export function VoidforgeGame() {
     gameApiRef.current.setHighContrast(highContrast);
     window.localStorage.setItem("voidforge-high-contrast", String(highContrast));
   }, [highContrast]);
+
+  useEffect(() => {
+    helpOpenRef.current = helpOpen;
+  }, [helpOpen]);
 
   useEffect(() => {
     const host = mountRef.current;
@@ -2110,6 +2262,7 @@ export function VoidforgeGame() {
 
       const killPlayer = () => {
         if (player.invulnerable > 0 || localMode !== "playing") return;
+        resetTouchInput(touchInputRef.current);
         lives -= 1;
         player.invulnerable = 2.8;
         player.vx = 0;
@@ -2222,6 +2375,7 @@ export function VoidforgeGame() {
       };
 
       const startGame = () => {
+        resetTouchInput(touchInputRef.current);
         resetWorld(true);
         localMode = "playing";
         setScreenMode("playing");
@@ -2233,6 +2387,7 @@ export function VoidforgeGame() {
       };
 
       const togglePause = () => {
+        resetTouchInput(touchInputRef.current);
         if (localMode === "playing") {
           localMode = "paused";
           setScreenMode("paused");
@@ -2433,27 +2588,46 @@ export function VoidforgeGame() {
         if (keys.has("ArrowUp") || keys.has("KeyW")) inputY -= 1;
         if (keys.has("ArrowDown") || keys.has("KeyS")) inputY += 1;
 
+        const touchInput = touchInputRef.current;
+        const touchMoveMagnitude = Math.hypot(touchInput.moveX, touchInput.moveY);
+        if (touchMoveMagnitude > Math.hypot(inputX, inputY)) {
+          inputX = touchInput.moveX;
+          inputY = touchInput.moveY;
+        }
+
         const pad = navigator.getGamepads?.()[0];
         let padFire = false;
         let padBomb = false;
+        let aimX = touchInput.aimX;
+        let aimY = touchInput.aimY;
         if (pad) {
-          const px = Math.abs(pad.axes[0] ?? 0) > 0.12 ? pad.axes[0] : 0;
-          const py = Math.abs(pad.axes[1] ?? 0) > 0.12 ? pad.axes[1] : 0;
-          if (Math.hypot(px, py) > Math.hypot(inputX, inputY)) { inputX = px; inputY = py; }
+          const padMove = normalizeControlVector(pad.axes[0] ?? 0, pad.axes[1] ?? 0, 1, 0.12);
+          if (padMove.magnitude > Math.hypot(inputX, inputY)) {
+            inputX = padMove.x;
+            inputY = padMove.y;
+          }
+          const padAim = normalizeControlVector(pad.axes[2] ?? 0, pad.axes[3] ?? 0, 1, 0.16);
+          if (padAim.magnitude > Math.hypot(aimX, aimY)) {
+            aimX = padAim.x;
+            aimY = padAim.y;
+          }
           padFire = pad.buttons[0]?.pressed ?? false;
           padBomb = (pad.buttons[1]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false);
         }
         if (localMode !== "playing") return;
 
         const rawMagnitude = Math.min(1, Math.hypot(inputX, inputY));
-        const band = Math.round(rawMagnitude * 6) / 6;
+        const band = quantizeThrustMagnitude(rawMagnitude, 6);
         if (rawMagnitude > 0.01) {
           inputX /= rawMagnitude;
           inputY /= rawMagnitude;
           const acceleration = 780 * band;
           player.vx += inputX * acceleration * dt;
           player.vy += inputY * acceleration * dt;
-          const targetAngle = Math.atan2(inputY, inputX);
+        }
+        const aimMagnitude = Math.hypot(aimX, aimY);
+        if (aimMagnitude > 0.01 || rawMagnitude > 0.01) {
+          const targetAngle = aimMagnitude > 0.01 ? Math.atan2(aimY, aimX) : Math.atan2(inputY, inputX);
           let diff = targetAngle - player.angle;
           while (diff > Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
@@ -2533,9 +2707,13 @@ export function VoidforgeGame() {
         });
         audio.setEngineThrust(band);
 
-        if (keys.has("Space") || padFire) launchLaser();
+        if (keys.has("Space") || padFire || touchInput.firing) launchLaser();
         if ((keys.has("KeyC") || keys.has("ShiftLeft") || keys.has("ShiftRight")) && novaCooldown <= 0) launchNova();
         if (padBomb && !lastGamepadBomb) launchNova();
+        if (touchInput.novaQueued) {
+          touchInput.novaQueued = false;
+          launchNova();
+        }
         lastGamepadBomb = padBomb;
 
         for (const planetoid of planetoids) {
@@ -2998,6 +3176,10 @@ export function VoidforgeGame() {
       const updateView = (dt: number) => {
         const width = app?.screen.width ?? host.clientWidth;
         const height = app?.screen.height ?? host.clientHeight;
+        const viewportRatio = Math.min(width / 1920, height / 1080);
+        const compactViewport = width < 1050 || height < 620;
+        const presentationFloor = compactViewport ? (height > width ? 0.48 : 0.52) : 0.85;
+        const overlayScale = clamp(viewportRatio, compactViewport ? 0.58 : 0.82, 2);
         const visualRhythm = audio.getVisualPulse(motionClock);
         if (dt > 0) {
           const frameHeadroom = dt <= 0.0185 ? 1 : dt >= 0.024 ? 0 : 1 - (dt - 0.0185) / 0.0055;
@@ -3106,13 +3288,12 @@ export function VoidforgeGame() {
           : clamp((speedRatio - 0.58) / 0.42, 0, 1) * localEffectIntensity;
         speedLayer.visible = speedFx > 0.01;
         if (speedLayer.visible) {
-          const viewportScale = clamp(Math.min(width / 1920, height / 1080), 0.7, 2.2);
           speedLayer.position.set(
             width * 0.5 - Math.cos(velocityAngle) * 92 * speedFx,
             height * 0.5 - Math.sin(velocityAngle) * 92 * speedFx,
           );
           speedLayer.rotation = velocityAngle * 0.08;
-          speedLayer.scale.set(viewportScale * (0.88 + speedFx * 0.48));
+          speedLayer.scale.set(overlayScale * (0.88 + speedFx * 0.48));
           speedLayer.alpha = speedFx * 0.24;
           speedStreaks.forEach((streak, index) => {
             streak.scale.set(1 + speedFx * (2.4 + (index % 4) * 0.42), 1);
@@ -3139,10 +3320,11 @@ export function VoidforgeGame() {
         const trauma = clamp(shake / 48, 0, 1);
         const shakeX = localReducedFx || dt <= 0 ? 0 : Math.sin(motionClock * 37.4) * trauma * trauma * 19;
         const shakeY = localReducedFx || dt <= 0 ? 0 : Math.sin(motionClock * 29.1 + 1.7) * trauma * trauma * 15;
-        const presentationScale = clamp(Math.min(width / 1920, height / 1080), 0.85, 2);
+        const presentationScale = clamp(viewportRatio, presentationFloor, 2);
         const worldScale = cameraZoom * presentationScale;
+        const cameraCenterY = compactViewport && height > width ? height * 0.43 : height * 0.5;
         world.scale.set(worldScale);
-        world.position.set(width / 2 - cameraX * worldScale + shakeX, height / 2 - cameraY * worldScale + shakeY);
+        world.position.set(width / 2 - cameraX * worldScale + shakeX, cameraCenterY - cameraY * worldScale + shakeY);
 
         if (app) app.stage.filterArea = app.screen;
         const cssPixels = width * height;
@@ -3190,9 +3372,14 @@ export function VoidforgeGame() {
           const limitX = Math.max(1, width * 0.5 - inset);
           const limitY = Math.max(1, height * 0.5 - inset);
           const scale = Math.min(limitX / Math.max(0.001, Math.abs(dx)), limitY / Math.max(0.001, Math.abs(dy)));
+          const edgeX = centerX + dx * Math.min(1, scale);
+          let edgeY = centerY + dy * Math.min(1, scale);
+          if (compactViewport && edgeY > height * 0.68) {
+            edgeY = Math.min(edgeY, height - Math.min(144, height * 0.31));
+          }
           return {
-            x: centerX + dx * Math.min(1, scale),
-            y: centerY + dy * Math.min(1, scale),
+            x: edgeX,
+            y: edgeY,
             angle: Math.atan2(dy, dx),
           };
         };
@@ -3215,7 +3402,7 @@ export function VoidforgeGame() {
           const edge = edgePoint(rawBossX, rawBossY, clamp(Math.min(width, height) * 0.06, 48, 108));
           bossIndicator.position.set(edge.x, edge.y);
           bossIndicator.rotation = edge.angle;
-          bossIndicator.scale.set(clamp(Math.min(width / 1920, height / 1080), 0.85, 2));
+          bossIndicator.scale.set(overlayScale);
           bossIndicator.alpha = highContrastRef.current ? 0.98 : localReducedFlashing ? 0.82 : 0.68 + danger * 0.24;
         }
 
@@ -3251,7 +3438,7 @@ export function VoidforgeGame() {
           const edge = edgePoint(threat.rawX, threat.rawY, clamp(Math.min(width, height) * 0.075, 58, 124));
           pointer.view.position.set(edge.x, edge.y);
           pointer.view.rotation = edge.angle;
-          pointer.view.scale.set(clamp(Math.min(width / 1920, height / 1080), 0.82, 2) * (threat.kind === "bolt" ? 0.86 : 1));
+          pointer.view.scale.set(overlayScale * (threat.kind === "bolt" ? 0.86 : 1));
           pointer.view.alpha = highContrastRef.current ? 1 : localReducedFlashing ? 0.82 : 0.66 + Math.min(0.28, threat.priority * 0.045);
           pointer.bolt.visible = threat.kind === "bolt";
           pointer.sentinel.visible = threat.kind === "sentinel";
@@ -3277,7 +3464,7 @@ export function VoidforgeGame() {
         if (reticleTarget) {
           const rawX = world.position.x + reticleTarget.x * worldScale;
           const rawY = world.position.y + reticleTarget.y * worldScale;
-          const hudScale = clamp(Math.min(width / 1920, height / 1080), 0.82, 2);
+          const hudScale = overlayScale;
           targetReticle.position.set(rawX, rawY);
           targetReticle.rotation = localReducedFx ? 0 : motionClock * (reticleIsBoss ? -0.18 : 0.26);
           targetReticle.scale.set(hudScale * (reticleIsBoss ? 1.48 : 0.86 + visualRhythm * 0.08));
@@ -3368,6 +3555,14 @@ export function VoidforgeGame() {
       });
 
       const onKeyDown = (event: KeyboardEvent) => {
+        if (event.code === "Escape" && helpOpenRef.current) {
+          event.preventDefault();
+          setHelpOpen(false);
+          return;
+        }
+        const target = event.target instanceof Element ? event.target : null;
+        const interactiveTarget = target?.closest("button, input, select, textarea, [role='dialog']");
+        if (interactiveTarget && event.code !== "Escape") return;
         if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code) && localMode !== "title") {
           event.preventDefault();
         }
@@ -3378,17 +3573,33 @@ export function VoidforgeGame() {
         if (event.code === "Enter" && localMode === "title") startGame();
       };
       const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
-      const onBlur = () => keys.clear();
+      const clearInputs = () => {
+        keys.clear();
+        resetTouchInput(touchInputRef.current);
+        lastGamepadBomb = false;
+        setTouchResetKey((value) => value + 1);
+      };
+      const onBlur = () => clearInputs();
+      const onVisibilityChange = () => {
+        clearInputs();
+        if (document.hidden && localMode === "playing") togglePause();
+      };
+      const onPageHide = () => clearInputs();
+      const onOrientationChange = () => clearInputs();
       const onPointerDown = () => { void audio.unlock(); app?.canvas.focus(); };
       window.addEventListener("keydown", onKeyDown, { passive: false });
       window.addEventListener("keyup", onKeyUp);
       window.addEventListener("blur", onBlur);
+      window.addEventListener("pagehide", onPageHide);
+      window.addEventListener("orientationchange", onOrientationChange);
+      document.addEventListener("visibilitychange", onVisibilityChange);
       app.canvas.addEventListener("pointerdown", onPointerDown);
 
       gameApiRef.current = {
         start: startGame,
         restart: startGame,
         togglePause,
+        unlockAudio() { void audio.unlock(); },
         setMuted(value) {
           audio.setMuted(value);
           if (value && "speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -3424,6 +3635,9 @@ export function VoidforgeGame() {
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
         window.removeEventListener("blur", onBlur);
+        window.removeEventListener("pagehide", onPageHide);
+        window.removeEventListener("orientationchange", onOrientationChange);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         app?.canvas.removeEventListener("pointerdown", onPointerDown);
       };
     };
@@ -3448,8 +3662,8 @@ export function VoidforgeGame() {
   }, []);
 
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else if (shellRef.current) void shellRef.current.requestFullscreen();
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else if (shellRef.current) void shellRef.current.requestFullscreen().catch(() => undefined);
   };
 
   const cycleEffectIntensity = () => {
@@ -3464,9 +3678,25 @@ export function VoidforgeGame() {
   const intensityLabel = effectIntensity === 1 ? "Full" : effectIntensity === 0.7 ? "Balanced" : effectIntensity === 0.35 ? "Low" : "Off";
   const colorLabel = colorMode === "standard" ? "Standard" : colorMode.slice(0, 4).toUpperCase();
 
+  const updateTouchMove = (x: number, y: number) => {
+    touchInputRef.current.moveX = x;
+    touchInputRef.current.moveY = y;
+  };
+
+  const updateTouchAim = (x: number, y: number, active: boolean) => {
+    touchInputRef.current.aimX = x;
+    touchInputRef.current.aimY = y;
+    touchInputRef.current.firing = active;
+  };
+
+  const queueTouchNova = () => {
+    gameApiRef.current.unlockAudio();
+    touchInputRef.current.novaQueued = true;
+  };
+
   return (
     <main
-      className={`voidforge-shell mode-${screenMode} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
+      className={`voidforge-shell mode-${screenMode} ${touchCapable ? "touch-enabled" : ""} ${touchSouthpaw ? "touch-southpaw" : ""} ${reducedFx ? "reduced-fx" : ""} ${reducedFlashing ? "reduced-flashing" : ""} effect-${intensityLabel.toLowerCase()} color-${colorMode} ${highContrast ? "high-contrast" : ""}`}
       ref={shellRef}
     >
       <div className="game-mount" ref={mountRef} />
@@ -3492,7 +3722,7 @@ export function VoidforgeGame() {
                 >
                   {ready ? "Enter the Expanse" : "Calibrating field…"}
                 </button>
-                <span className="version-mark">Vesper flight core<br />build 01.26</span>
+                <span className="version-mark">Vesper flight core<br />build 01.27</span>
               </div>
             </div>
             <MissionBriefing />
@@ -3501,8 +3731,47 @@ export function VoidforgeGame() {
 
         {screenMode !== "title" && <HeadsUpDisplay hud={hud} />}
 
+        {touchCapable && screenMode === "playing" && !helpOpen && (
+          <section className="touch-controls" aria-label="Touch flight controls" key={touchResetKey}>
+            <TouchStick
+              label="Thrust"
+              hint="Move"
+              tone="thrust"
+              onEngage={() => gameApiRef.current.unlockAudio()}
+              onVector={(x, y) => updateTouchMove(x, y)}
+            />
+            <TouchStick
+              label="Aim"
+              hint="Hold to fire"
+              tone="fire"
+              onEngage={() => gameApiRef.current.unlockAudio()}
+              onVector={updateTouchAim}
+            />
+            <button
+              className="touch-action-button touch-nova-button"
+              type="button"
+              aria-label={`Launch Nova Charge, ${hud.charges} remaining`}
+              disabled={hud.charges <= 0}
+              data-testid="touch-nova"
+              onClick={queueTouchNova}
+            >
+              <span>Nova</span>
+              <strong>{hud.charges.toString().padStart(2, "0")}</strong>
+            </button>
+            <button
+              className="touch-action-button touch-pause-button"
+              type="button"
+              aria-label="Pause flight and open options"
+              onClick={() => gameApiRef.current.togglePause()}
+            >
+              <span aria-hidden="true">Ⅱ</span>
+              <small>Pause</small>
+            </button>
+          </section>
+        )}
+
         {notice && (
-          <div className={`center-alert ${notice.danger ? "danger" : ""}`} key={notice.key} role="status">
+          <div className={`center-alert ${notice.danger ? "danger" : ""}`} key={notice.key} aria-hidden="true">
             {notice.text}
           </div>
         )}
@@ -3536,27 +3805,28 @@ export function VoidforgeGame() {
             <button className="utility-button dialog-close" aria-label="Close help" onClick={() => setHelpOpen(false)}>×</button>
             <h2 id="help-title">Flight manual</h2>
             <div className="help-grid">
-              <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, or a gamepad stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
+              <div><h3>Variable thrust</h3><p>Use WASD, arrow keys, a gamepad stick, or the left touch stick. Six thrust bands recreate the original variable-speed arcade feel.</p></div>
+              <div><h3>Touch targeting</h3><p>Drag the right stick to aim independently and hold it to fire. Tap Nova for a single homing charge; Pause opens every display option.</p></div>
               <div><h3>Mine carefully</h3><p>Tap Space to cut Flux Shards from planetoids. Firing too rapidly destroys the rock before it yields everything.</p></div>
               <div><h3>Deny assembly</h3><p>Orange Fabricators steal loose Flux and carry it to the Dread Engine. Violet Sentinels protect them.</p></div>
-              <div><h3>Launch Nova Charges</h3><p>Press C or Shift. Charges home toward an active Engine, but asteroids and Sentinels can intercept them.</p></div>
-              <div><h3>Pause and restart</h3><p>Press P or Escape to pause. Press R after signal loss to restart the run.</p></div>
+              <div><h3>Launch Nova Charges</h3><p>Press C or Shift, or tap the orange Nova control. Charges home toward an active Engine, but obstacles can intercept them.</p></div>
+              <div><h3>Pause and restart</h3><p>Press P or Escape, or tap Pause. After signal loss, use R or the on-screen restart control.</p></div>
               <div><h3>Accessibility</h3><p>Reduce motion or flashing independently, tune effect density, select a color profile, increase contrast, or mute procedural audio.</p></div>
             </div>
           </section>
         )}
 
-        <nav className="utility-bar" aria-label="Game options">
-          <button className="utility-button" aria-pressed={muted} onClick={() => setMuted((value) => !value)}>
+        {!helpOpen && <nav className="utility-bar" aria-label="Game options">
+          <button className="utility-button" aria-label={muted ? "Unmute sound" : "Mute sound"} aria-pressed={muted} onClick={() => setMuted((value) => !value)}>
             <span aria-hidden="true">{muted ? "◌" : "◉"}</span><span className="utility-label">Sound</span>
           </button>
-          <button className="utility-button" aria-pressed={reducedFx} onClick={() => setReducedFx((value) => !value)}>
+          <button className="utility-button" aria-label="Toggle reduced motion" aria-pressed={reducedFx} onClick={() => setReducedFx((value) => !value)}>
             <span aria-hidden="true">↔</span><span className="utility-label">Motion</span>
           </button>
-          <button className="utility-button" aria-pressed={highContrast} onClick={() => setHighContrast((value) => !value)}>
+          <button className="utility-button" aria-label="Toggle high contrast" aria-pressed={highContrast} onClick={() => setHighContrast((value) => !value)}>
             <span aria-hidden="true">◐</span><span className="utility-label">Contrast</span>
           </button>
-          <button className="utility-button" aria-pressed={reducedFlashing} onClick={() => setReducedFlashing((value) => !value)}>
+          <button className="utility-button" aria-label="Toggle reduced flashing" aria-pressed={reducedFlashing} onClick={() => setReducedFlashing((value) => !value)}>
             <span aria-hidden="true">☼</span><span className="utility-label">Flashing</span>
           </button>
           <button className="utility-button" aria-label={`Effect intensity: ${intensityLabel}`} onClick={cycleEffectIntensity}>
@@ -3565,15 +3835,28 @@ export function VoidforgeGame() {
           <button className="utility-button" aria-label={`Color profile: ${colorLabel}`} onClick={cycleColorMode}>
             <span aria-hidden="true">C</span><span className="utility-label">{colorLabel}</span>
           </button>
-          <button className="utility-button" aria-expanded={helpOpen} onClick={() => setHelpOpen((value) => !value)}>
+          {touchCapable && (
+            <button className="utility-button" aria-label="Swap touch control sides" aria-pressed={touchSouthpaw} onClick={() => setTouchSouthpaw((value) => !value)}>
+              <span aria-hidden="true">⇄</span><span className="utility-label">Swap</span>
+            </button>
+          )}
+          <button
+            className="utility-button"
+            aria-label="Open flight manual"
+            aria-expanded={helpOpen}
+            onClick={() => {
+              if (!helpOpen && screenMode === "playing") gameApiRef.current.togglePause();
+              setHelpOpen((value) => !value);
+            }}
+          >
             <span aria-hidden="true">?</span><span className="utility-label">Help</span>
           </button>
-          <button className="utility-button" onClick={toggleFullscreen}>
+          <button className="utility-button" aria-label="Toggle fullscreen" onClick={toggleFullscreen}>
             <span aria-hidden="true">⛶</span><span className="utility-label">Fullscreen</span>
           </button>
-        </nav>
-        <p className="portrait-notice">Rotate to landscape for full flight control</p>
-        <p className="sr-only" aria-live="polite">{notice?.text ?? ""}</p>
+        </nav>}
+        {touchCapable && screenMode === "title" && <p className="portrait-notice">Portrait controls active · landscape expands the tactical view</p>}
+        <p className="sr-only" role="status" aria-live="polite">{notice?.text ?? ""}</p>
       </div>
     </main>
   );

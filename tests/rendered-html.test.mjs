@@ -29,15 +29,25 @@ test("server-renders the VOIDFORGE launch screen", async () => {
 });
 
 test("ships the game, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, audio, packageJson] = await Promise.all([
+  const [component, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
   assert.match(component, /new PIXI\.Application/);
   assert.match(component, /navigator\.getGamepads/);
   assert.match(component, /prefers-reduced-motion/);
   assert.match(component, /DREAD ENGINE/);
+  assert.match(component, /Touch flight controls/);
+  assert.match(component, /setPointerCapture/);
+  assert.match(component, /visibilitychange/);
+  assert.match(component, /touchInput\.novaQueued = false/);
+  assert.match(styles, /safe-area-inset-bottom/);
+  assert.match(styles, /touch-action:\s*none/);
+  assert.match(styles, /max-height:\s*600px/);
+  assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(audio, /class VoidforgeAudio/);
   assert.match(audio, /createOscillator/);
   assert.match(packageJson, /"pixi\.js": "8\.13\.2"/);

@@ -9,6 +9,8 @@ import {
   homingVelocity,
   minePlanetoid,
   nextZone,
+  normalizeControlVector,
+  quantizeThrustMagnitude,
   seededRandom,
   strikeEngine,
 } from "../app/game/core.mjs";
@@ -83,4 +85,19 @@ test("homing velocity turns toward its target at a bounded rate", () => {
 test("collision checks use combined radii", () => {
   assert.equal(circlesOverlap({ x: 0, y: 0, radius: 10 }, { x: 19, y: 0, radius: 10 }), true);
   assert.equal(circlesOverlap({ x: 0, y: 0, radius: 10 }, { x: 21, y: 0, radius: 10 }), false);
+});
+
+test("touch sticks normalize dead zones and diagonal travel", () => {
+  assert.deepEqual(normalizeControlVector(0.04, 0, 1, 0.1), { x: 0, y: 0, magnitude: 0 });
+  const diagonal = normalizeControlVector(1, 1, 1, 0.1);
+  assert.equal(diagonal.magnitude, 1);
+  assert.ok(Math.abs(diagonal.x - Math.SQRT1_2) < 0.0001);
+  assert.ok(Math.abs(diagonal.y - Math.SQRT1_2) < 0.0001);
+});
+
+test("touch thrust retains the six arcade acceleration bands", () => {
+  assert.equal(quantizeThrustMagnitude(0), 0);
+  assert.equal(quantizeThrustMagnitude(0.12), 1 / 6);
+  assert.equal(quantizeThrustMagnitude(0.51), 0.5);
+  assert.equal(quantizeThrustMagnitude(1.4), 1);
 });

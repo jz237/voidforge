@@ -10,6 +10,10 @@
   --danger: #ff4f6d;
   --glass: rgba(7, 13, 28, 0.72);
   --line: rgba(116, 220, 255, 0.2);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --font-display: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif;
   --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -24,6 +28,7 @@ body {
   min-height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #03040b;
   color: var(--ink);
   font-family: var(--font-body);
@@ -37,6 +42,7 @@ button {
   position: relative;
   width: 100vw;
   height: 100svh;
+  height: 100dvh;
   min-height: 540px;
   overflow: hidden;
   isolation: isolate;
@@ -44,6 +50,14 @@ button {
     radial-gradient(circle at 50% 44%, rgba(16, 35, 74, 0.22), transparent 42%),
     #03040b;
   user-select: none;
+}
+
+.voidforge-shell.touch-enabled {
+  --touch-edge: clamp(12px, 2.4vw, 24px);
+  --touch-stick-size: clamp(116px, 17vw, 156px);
+  min-height: 0;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .voidforge-shell.high-contrast {
@@ -83,6 +97,10 @@ button {
 .game-mount canvas {
   display: block;
   outline: none;
+}
+
+.touch-enabled .game-mount canvas {
+  touch-action: none;
 }
 
 .fx-vignette {
@@ -437,6 +455,259 @@ button {
   outline: none;
   border-color: rgba(108, 222, 255, 0.55);
   color: #e9fbff;
+}
+
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.touch-stick {
+  position: absolute;
+  bottom: calc(var(--safe-bottom) + var(--touch-edge));
+  left: calc(var(--safe-left) + var(--touch-edge));
+  width: var(--touch-stick-size);
+  height: var(--touch-stick-size);
+  overflow: hidden;
+  border: 1px solid rgba(113, 228, 255, 0.36);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(81, 225, 255, 0.09) 0 24%, transparent 25%),
+    radial-gradient(circle at 50% 50%, rgba(7, 16, 32, 0.58) 0 65%, rgba(5, 10, 22, 0.82) 100%);
+  box-shadow:
+    inset 0 0 28px rgba(65, 222, 255, 0.1),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+  opacity: 0.82;
+  pointer-events: auto;
+  touch-action: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  backdrop-filter: blur(7px);
+}
+
+.touch-stick-fire {
+  right: calc(var(--safe-right) + var(--touch-edge));
+  left: auto;
+  border-color: rgba(185, 119, 255, 0.42);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(185, 94, 255, 0.12) 0 24%, transparent 25%),
+    radial-gradient(circle at 50% 50%, rgba(18, 9, 34, 0.62) 0 65%, rgba(7, 8, 22, 0.84) 100%);
+  box-shadow:
+    inset 0 0 28px rgba(176, 89, 255, 0.12),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+}
+
+.touch-stick.active {
+  border-color: rgba(151, 242, 255, 0.84);
+  box-shadow:
+    inset 0 0 36px rgba(65, 222, 255, 0.2),
+    0 0 24px rgba(65, 222, 255, 0.2),
+    0 10px 34px rgba(0, 0, 0, 0.48);
+  opacity: 1;
+}
+
+.touch-stick-fire.active {
+  border-color: rgba(223, 165, 255, 0.9);
+  box-shadow:
+    inset 0 0 36px rgba(176, 89, 255, 0.24),
+    0 0 24px rgba(176, 89, 255, 0.24),
+    0 10px 34px rgba(0, 0, 0, 0.48);
+}
+
+.touch-stick-grid {
+  position: absolute;
+  inset: 12%;
+  border: 1px solid rgba(128, 229, 255, 0.12);
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent 49.5%, rgba(128, 229, 255, 0.12) 50%, transparent 50.5%),
+    linear-gradient(transparent 49.5%, rgba(128, 229, 255, 0.12) 50%, transparent 50.5%);
+}
+
+.touch-stick-fire .touch-stick-grid {
+  border-color: rgba(203, 151, 255, 0.15);
+  background:
+    linear-gradient(90deg, transparent 49.5%, rgba(203, 151, 255, 0.13) 50%, transparent 50.5%),
+    linear-gradient(transparent 49.5%, rgba(203, 151, 255, 0.13) 50%, transparent 50.5%);
+}
+
+.touch-stick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 42%;
+  height: 42%;
+  place-items: center;
+  border: 1px solid rgba(167, 240, 255, 0.7);
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(76, 218, 255, 0.3), rgba(24, 93, 134, 0.28));
+  box-shadow: inset 0 0 16px rgba(128, 240, 255, 0.18), 0 0 16px rgba(54, 216, 255, 0.2);
+  will-change: transform;
+}
+
+.touch-stick-knob i {
+  width: 28%;
+  height: 28%;
+  transform: rotate(45deg);
+  border: 1px solid rgba(226, 252, 255, 0.9);
+}
+
+.touch-stick-fire .touch-stick-knob {
+  border-color: rgba(229, 176, 255, 0.78);
+  background: linear-gradient(145deg, rgba(191, 104, 255, 0.36), rgba(87, 40, 145, 0.3));
+  box-shadow: inset 0 0 16px rgba(224, 154, 255, 0.2), 0 0 16px rgba(182, 89, 255, 0.22);
+}
+
+.touch-stick-label,
+.touch-stick-hint {
+  position: absolute;
+  right: 0;
+  bottom: 17px;
+  left: 0;
+  color: rgba(208, 248, 255, 0.84);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.touch-stick-hint {
+  bottom: 7px;
+  color: rgba(141, 178, 195, 0.76);
+  font-size: 6px;
+  letter-spacing: 0.13em;
+}
+
+.touch-action-button {
+  position: absolute;
+  display: grid;
+  min-width: 52px;
+  min-height: 52px;
+  place-items: center;
+  border: 1px solid rgba(144, 224, 250, 0.36);
+  background: rgba(5, 11, 25, 0.82);
+  color: #eafaff;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(9px);
+}
+
+.touch-action-button:focus-visible {
+  outline: 2px solid rgba(151, 242, 255, 0.9);
+  outline-offset: 3px;
+}
+
+.touch-action-button:active {
+  transform: scale(0.94);
+}
+
+.touch-action-button:disabled {
+  opacity: 0.34;
+  filter: saturate(0.45);
+}
+
+.touch-nova-button {
+  right: calc(var(--safe-right) + var(--touch-edge) + 8px);
+  bottom: calc(var(--safe-bottom) + var(--touch-edge) + var(--touch-stick-size) + 10px);
+  width: clamp(62px, 8vw, 72px);
+  height: clamp(62px, 8vw, 72px);
+  align-content: center;
+  gap: 3px;
+  clip-path: polygon(50% 0, 92% 24%, 92% 76%, 50% 100%, 8% 76%, 8% 24%);
+  border: 0;
+  background: linear-gradient(145deg, rgba(255, 151, 57, 0.84), rgba(130, 61, 20, 0.88));
+  box-shadow: inset 0 0 20px rgba(255, 232, 170, 0.2), 0 0 24px rgba(255, 139, 48, 0.2);
+  color: #fff8e8;
+  text-transform: uppercase;
+}
+
+.touch-nova-button span {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.touch-nova-button strong {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.touch-pause-button {
+  top: calc(var(--safe-top) + 72px);
+  left: calc(var(--safe-left) + 12px);
+  width: 54px;
+  height: 54px;
+  align-content: center;
+  gap: 2px;
+  border-radius: 50%;
+}
+
+.touch-pause-button > span {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.touch-pause-button small {
+  color: #9eb3c4;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.touch-southpaw .touch-stick-thrust {
+  right: calc(var(--safe-right) + var(--touch-edge));
+  left: auto;
+}
+
+.touch-southpaw .touch-stick-fire {
+  right: auto;
+  left: calc(var(--safe-left) + var(--touch-edge));
+}
+
+.touch-southpaw .touch-nova-button {
+  right: auto;
+  left: calc(var(--safe-left) + var(--touch-edge) + 8px);
+}
+
+.touch-enabled.mode-playing .utility-bar {
+  display: none;
+}
+
+.touch-enabled.mode-title .utility-bar {
+  display: none;
+}
+
+.touch-enabled .utility-bar {
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 12px);
+  left: calc(var(--safe-left) + 12px);
+  flex-wrap: wrap;
+  justify-content: center;
+  opacity: 1;
+}
+
+.touch-enabled.mode-paused .utility-bar,
+.touch-enabled.mode-gameover .utility-bar {
+  z-index: 22;
+}
+
+.high-contrast .touch-stick,
+.high-contrast .touch-action-button {
+  border-color: rgba(226, 252, 255, 0.92);
+  opacity: 1;
+}
+
+.reduced-fx .touch-stick,
+.reduced-fx .touch-action-button {
+  transition: none;
 }
 
 .hud {
@@ -961,6 +1232,249 @@ button {
   .utility-button .utility-label { display: none; }
 }
 
+.touch-enabled .hud-top {
+  grid-template-columns: 1fr 76px 1fr;
+  padding: calc(var(--safe-top) + 10px) calc(var(--safe-right) + 12px) 10px calc(var(--safe-left) + 12px);
+}
+
+.touch-enabled .hud-cluster {
+  gap: 8px;
+}
+
+.touch-enabled .hud-stat {
+  min-width: 54px;
+}
+
+.touch-enabled .hud-stat.optional {
+  display: none;
+}
+
+.touch-enabled .hud-label {
+  margin-bottom: 4px;
+  font-size: 7px;
+  letter-spacing: 0.15em;
+}
+
+.touch-enabled .hud-value {
+  font-size: clamp(15px, 3.7vw, 20px);
+}
+
+.touch-enabled .radar-wrap {
+  width: 72px;
+  height: 72px;
+}
+
+.touch-enabled .radar-caption,
+.touch-enabled .radar-status,
+.touch-enabled .tactical-frame {
+  display: none;
+}
+
+.touch-enabled .hud-bottom {
+  padding: 0 24vw calc(var(--safe-bottom) + 12px);
+}
+
+.touch-enabled .construction-panel {
+  width: min(380px, 44vw);
+}
+
+.touch-enabled .construction-header {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.touch-enabled .utility-button {
+  min-width: 48px;
+  height: 48px;
+}
+
+.touch-enabled .pause-screen,
+.touch-enabled .gameover-screen,
+.touch-enabled .help-dialog {
+  z-index: 20;
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .voidforge-shell.touch-enabled {
+    --touch-edge: clamp(9px, 2vw, 18px);
+    --touch-stick-size: clamp(102px, 29vh, 132px);
+  }
+
+  .touch-enabled .title-screen {
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 12px;
+    padding: calc(var(--safe-top) + 18px) calc(var(--safe-right) + 40px) calc(var(--safe-bottom) + 18px) calc(var(--safe-left) + 40px);
+    overflow: auto;
+  }
+
+  .touch-enabled .briefing-card,
+  .touch-enabled .version-mark {
+    display: none;
+  }
+
+  .touch-enabled .wordmark {
+    font-size: clamp(56px, 23vh, 92px);
+  }
+
+  .touch-enabled .title-rule {
+    margin: 16px 0 13px;
+  }
+
+  .touch-enabled .title-copy {
+    max-width: 610px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .touch-enabled .title-actions {
+    margin-top: 16px;
+  }
+
+  .touch-enabled .primary-action {
+    min-width: 216px;
+    padding: 14px 22px;
+    font-size: 12px;
+  }
+
+  .touch-enabled .hud-top {
+    grid-template-columns: 1fr 62px 1fr;
+    padding-top: calc(var(--safe-top) + 7px);
+  }
+
+  .touch-enabled .radar-wrap {
+    width: 60px;
+    height: 60px;
+  }
+
+  .touch-enabled .hud-value {
+    font-size: 15px;
+  }
+
+  .touch-enabled .hud-bottom {
+    padding-right: 23vw;
+    padding-bottom: calc(var(--safe-bottom) + 8px);
+    padding-left: 23vw;
+  }
+
+  .touch-enabled .construction-panel {
+    width: min(330px, 42vw);
+  }
+
+  .touch-enabled .construction-header {
+    margin-bottom: 5px;
+    font-size: 7px;
+  }
+
+  .touch-enabled .construction-track {
+    height: 6px;
+  }
+
+  .touch-enabled .center-alert {
+    top: calc(var(--safe-top) + 84px);
+    width: min(520px, 62vw);
+    font-size: clamp(13px, 3.6vh, 20px);
+  }
+
+  .touch-enabled .touch-pause-button {
+    top: calc(var(--safe-top) + 62px);
+    width: 48px;
+    height: 48px;
+  }
+
+  .touch-enabled .touch-nova-button {
+    bottom: calc(var(--safe-bottom) + var(--touch-edge) + var(--touch-stick-size) + 5px);
+    width: 58px;
+    height: 58px;
+  }
+
+  .touch-enabled .pause-panel,
+  .touch-enabled .gameover-panel {
+    width: min(500px, calc(100vw - var(--safe-left) - var(--safe-right) - 36px));
+    padding: 22px 34px 70px;
+  }
+
+  .touch-enabled .pause-panel h2,
+  .touch-enabled .gameover-panel h2 {
+    margin-bottom: 10px;
+    font-size: 42px;
+  }
+
+  .touch-enabled .pause-panel p,
+  .touch-enabled .gameover-panel p {
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .touch-enabled .help-dialog {
+    top: calc(50% + var(--safe-top) * 0.5 - var(--safe-bottom) * 0.5);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 20px);
+    padding: 24px 28px 76px;
+  }
+
+  .touch-enabled .help-dialog h2 {
+    margin-bottom: 14px;
+    font-size: 28px;
+  }
+
+  .touch-enabled .help-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 20px;
+  }
+
+  .touch-enabled .help-dialog p {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .touch-enabled .utility-bar {
+    gap: 6px;
+  }
+
+  .touch-enabled .utility-button .utility-label {
+    display: none;
+  }
+}
+
+@media (orientation: portrait) {
+  .voidforge-shell.touch-enabled {
+    --touch-edge: clamp(10px, 3vw, 18px);
+    --touch-stick-size: clamp(116px, 34vw, 146px);
+  }
+
+  .touch-enabled .hud-bottom {
+    padding-right: 12vw;
+    padding-bottom: calc(var(--safe-bottom) + var(--touch-stick-size) + var(--touch-edge) + 18px);
+    padding-left: 12vw;
+  }
+
+  .touch-enabled .construction-panel {
+    width: min(420px, 76vw);
+  }
+
+  .touch-enabled .touch-nova-button,
+  .touch-enabled.touch-southpaw .touch-nova-button {
+    right: auto;
+    bottom: calc(var(--safe-bottom) + var(--touch-edge) + 18px);
+    left: 50%;
+    width: 64px;
+    height: 64px;
+    margin-left: -32px;
+  }
+
+  .touch-enabled .center-alert {
+    top: calc(var(--safe-top) + 112px);
+    width: 76vw;
+    font-size: clamp(14px, 4vw, 20px);
+  }
+}
+
+@media (orientation: portrait) and (max-width: 600px) {
+  .touch-enabled .wordmark {
+    font-size: clamp(50px, 15.5vw, 64px);
+  }
+}
+
 @media (min-width: 2600px) {
   .hud-top {
     padding: 68px 108px;
@@ -1090,7 +1604,7 @@ button {
   .portrait-notice {
     position: absolute;
     right: 16px;
-    bottom: 72px;
+    bottom: calc(var(--safe-bottom) + 18px);
     left: 16px;
     display: block;
     padding: 11px 14px;

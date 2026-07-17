@@ -21,7 +21,7 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Graphics | Material-family 2D WebGL art, headroom-gated 4K microdetail, intent-driven animation, staged damage, and restrained cinematic post-processing |
 | Interface | Contextual holographic HUD, player-relative radar trails, targeting brackets, off-screen warnings, and explicit construction ticks |
 | Audio | Original Web Audio synthesis, adaptive layers, a restrained visual-cadence envelope, spatial effects, and new transmissions |
-| Controls | Analog stick plus six-band keyboard thrust ramp, rebinding, and adjustable dead zone |
+| Controls | Keyboard/gamepad plus responsive touch twin sticks, six-band thrust, independent aim/held fire, one-tap Nova, and swappable handedness |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
 | Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
 
@@ -50,6 +50,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 - PixiJS is preferred over Phaser because the current project already includes it and the design benefits from explicit render-layer and shader control.
 - Simulation state should remain independent of Pixi display objects so mechanics can be tested deterministically.
+- Keep touch state outside the React render hot path. Pointer capture carries a stick drag beyond its pad, while pointer up, cancellation, lost capture, focus loss, page hide, and orientation changes clear held movement and fire state.
+- Use safe-area insets and orientation-specific responsive layout rules for both phone portrait and landscape. Touch options expose a Swap control for southpaw placement without changing keyboard or gamepad bindings.
 - Use a fixed simulation step or accumulated bounded steps; clamp long browser frames to prevent tunneling and runaway AI.
 - Pool or cap shots, charges, enemy projectiles, persistent wreckage, debris, and high-frequency particles.
 - Seed random generation for reproducible screenshots and automated scenarios.
@@ -100,7 +102,7 @@ Required for the first complete release:
 - One balanced Cinder Expanse arena with wrapping world and scanner
 - Mining, shard collection, Fabricators, Sentinels, 20-step construction, activation, pursuit, interception, 13-node damage, destruction, and arena-clear transition
 - Score, high score, three hulls, charge inventory, pause, game over, and restart
-- Keyboard and gamepad controls
+- Keyboard, gamepad, and responsive touch controls for phone portrait and landscape
 - Original synthesized effects and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
 - Deterministic test mode, mechanic tests, browser smoke test, and the eight required screenshot states at 1080p and 4K
@@ -115,5 +117,7 @@ Deferred unless time permits: additional arena modifiers, persistent settings, e
 - [ ] Every critical state has visual, textual, and/or audio redundancy.
 - [ ] Maximum-combat screenshots remain readable at 1080p and 4K.
 - [ ] Reduced Motion, Reduced Flashing, and color-vision presets are verified in play.
-- [ ] Keyboard and gamepad can complete the full loop.
+- [ ] Keyboard, gamepad, and browser-simulated touch input can complete the full loop.
+- [ ] Portrait and landscape touch layouts preserve safe areas; Swap supports southpaw play; cancellation and background paths release held input and pause safely.
+- [ ] Validate touch on physical-device Safari and Chrome; current mobile coverage is limited to browser viewport and pointer-event verification.
 - [ ] The Cinder Expanse can be won, lost, paused, restarted, and advanced without console errors.

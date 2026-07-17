@@ -2,7 +2,7 @@
 
 ![VOIDFORGE launch screen](artifacts/screenshots/launch-1920x1080.png)
 
-VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, survive its pursuit, and destroy it with homing Nova Charges.
+VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, survive its pursuit, and destroy it with homing Nova Charges.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
@@ -24,20 +24,27 @@ npm run start
 
 ## Controls
 
-| Action | Keyboard | Standard gamepad |
-| --- | --- | --- |
-| Thrust and steer | WASD or arrow keys | Left stick |
-| Fire laser / mine | Space | South face button |
-| Launch Nova Charge | C or Shift | East or west face button |
-| Pause / resume | P or Escape | Menu button |
-| Start | Enter or on-screen button | — |
-| Restart after game over | R or on-screen button | — |
+| Action | Keyboard | Standard gamepad | Touch |
+| --- | --- | --- | --- |
+| Thrust and steer | WASD or arrow keys | Left stick | Left virtual stick |
+| Aim | Travel direction | Right stick or travel direction | Right virtual stick |
+| Fire laser / mine | Space | South face button | Hold the right virtual stick |
+| Launch Nova Charge | C or Shift | East or west face button | Tap **Nova** |
+| Pause / resume | P or Escape | Menu button | Tap **Pause** |
+| Start | Enter or on-screen button | On-screen button | On-screen button |
+| Restart after game over | R or on-screen button | On-screen button | On-screen button |
+
+On touch-capable phones, the responsive twin-stick layout defaults to left-side thrust and right-side independent aim with held fire. Thrust magnitude is quantized into six readable speed bands. **Nova** queues one launch per tap, while **Pause** opens the options overlay; its **Swap** control switches the touch layout to southpaw orientation.
+
+Phone portrait and landscape layouts both respect display safe areas and keep the HUD above the controls. Pointer capture preserves a drag that leaves a stick, while pointer cancellation, lost capture, blur, page hide, and orientation changes clear held input. Hiding the page during play also pauses the game automatically. Keyboard and gamepad input remain available.
+
+Touch layout and pointer behavior have been verified with browser mobile viewports and pointer-event checks. Dense touch combat held 60 FPS at 844×390 with a 16.8 ms p95 frame time; see the [mobile performance capture](artifacts/performance-mobile-844x390.json). Physical-device Safari and Chrome validation remains pending.
 
 Laser fire mines planetoids as well as attacking enemies. Controlled bursts release more Flux; firing too rapidly can destroy a planetoid before all its shards are extracted.
 
 ## Accessibility and display
 
-The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, and fullscreen controls. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
+The utility bar provides independent reduced-motion and reduced-flashing controls, effect-density presets including FX Off, deuteranopia/protanopia/tritanopia color profiles, High Contrast, procedural-audio mute, in-game help, fullscreen controls, and touch-side swapping. Reduced motion and flashing follow the operating system preference on first launch. Preferences are saved locally. Critical states use text, distinct silhouettes, contextual HUD threat status, player-relative radar trails, targeting brackets, persistent off-screen warnings, and audio rather than color alone.
 
 The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. The particle-heavy bombardment profile measured 60 FPS at both target resolutions, with a 16.8 ms p95 frame time at 4K. See the [1080p](artifacts/performance-1920x1080.json) and [4K](artifacts/performance-3840x2160.json) performance captures.
 
@@ -70,6 +77,8 @@ npm run lint
 ```
 
 Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, and `gameover`.
+
+Mobile layout captures: [844×390 landscape](artifacts/screenshots/mobile-landscape-844x390.jpg) and [390×844 portrait](artifacts/screenshots/mobile-portrait-390x844.jpg).
 
 | Scene | 1920×1080 | 3840×2160 |
 | --- | --- | --- |

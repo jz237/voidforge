@@ -12,8 +12,8 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 
 - TypeScript, Vite, and PixiJS/WebGL
 - Web Audio API for generated effects and adaptive layers
-- Desktop Chrome, Edge, Firefox, and Safari; keyboard and standard gamepads
-- 1920×1080 logical design space, responsive 16:9 presentation, sharp scaling through 3840×2160
+- Desktop browsers first, with keyboard and standard gamepads preserved alongside touch input
+- 1920×1080 logical design space, sharp scaling through 3840×2160, and responsive phone portrait and landscape presentations
 - 60 FPS target; simulation isolated from rendering with clamped delta time
 - Hardware-accelerated particles, selective bloom, lighting, distortion, and post-processing
 
@@ -49,21 +49,27 @@ All values are data-driven and subject to playtesting.
 
 ## Flight and controls
 
-The ship fires in its current travel/aim direction. Movement has acceleration, momentum, drag, and a fast reversal response.
+Movement has acceleration, momentum, drag, and a fast reversal response. Keyboard aim follows travel direction, while gamepad and touch right sticks can aim independently of thrust.
 
-| Action | Keyboard | Gamepad |
-| --- | --- | --- |
-| Thrust / steer | WASD or arrows | Left stick |
-| Primary laser | Space | South face button / right trigger |
-| Nova Charge | Shift or C | West face button / left trigger |
-| Pause | P or Escape | Menu |
-| Restart after game over | R | South face button |
-| Mute | M | Settings only |
+| Action | Keyboard | Gamepad | Touch |
+| --- | --- | --- | --- |
+| Thrust / steer | WASD or arrows | Left stick | Left virtual stick |
+| Aim | Travel direction | Right stick or travel direction | Right virtual stick |
+| Primary laser | Space | South face button | Hold the right virtual stick |
+| Nova Charge | Shift or C | East or west face button | Tap **Nova** |
+| Pause | P or Escape | Menu | Tap **Pause** |
+| Restart after game over | R | South face button | On-screen restart |
+| Mute | M | Settings | Pause/options overlay |
 
-- Analog stick dead zone: 0.16; full thrust at 0.92.
-- Keyboard input ramps through six thrust bands over 350 ms and falls through them over 220 ms, approximating variable-speed intent without claiming hardware emulation.
+- Keyboard, gamepad, and touch thrust are normalized into six output bands. Digital keyboard input reaches full thrust; analog stick distance selects lower bands.
 - Opposite input applies stronger braking before accelerating in the new direction.
-- Control glyphs update to the last-used device.
+- On touch-capable phones, the default responsive layout is left-side thrust plus right-side aim and held fire. The right stick's aim vector remains independent of thrust.
+- Each **Nova** tap queues one launch attempt. It does not become a held-fire control, and a launch without a valid target still consumes no charge.
+- **Pause** opens the options overlay. Its **Swap** button reverses the touch-control sides and Nova placement for southpaw play.
+- Each stick captures its active pointer so a drag can leave the pad. Pointer up, cancellation, or lost capture releases that stick and prevents stuck movement or fire.
+- Blur, page hide, and orientation changes clear held touch input. Moving the page to the background during play also pauses automatically.
+- Phone portrait and landscape layouts use safe-area insets, responsive stick placement, and HUD spacing that keeps controls and critical information distinct.
+- Keyboard and gamepad controls remain active when touch controls are available.
 
 ## Player systems
 
@@ -153,6 +159,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Independent master, effects, music, voice, and bass controls
 - Rebindable keyboard actions and adjustable gamepad dead zone
 - Toggle/hold options for primary fire; pause on focus loss
+- Swappable touch handedness, safe-area-aware portrait/landscape layouts, and action targets sized for touch
 - Critical alerts delivered by icon, text, and sound; no essential information depends on color or audio alone
 
 ## Game states and progression
@@ -167,8 +174,9 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - Cap simultaneously visible particles by accessibility preset and device performance.
 - Capture 1920×1080 and 3840×2160 frames for exploration, mining, construction, dense combat, pursuit, multi-hit damage, destruction, and game over.
 - Verify that player, shards, enemies, charges, hostile shots, and scanner contacts remain identifiable in every capture.
+- Browser mobile-viewport and pointer-event checks cover portrait/landscape layout, pointer capture and cancellation, safe-area rules, and background auto-pause. Physical-device mobile Safari and Chrome validation remains pending.
 - Automated simulation tests cover extraction, collection, delivery, activation, homing/interception, boss damage, death/respawn, scoring, and arena completion.
 
 ## Definition of done
 
-A player can learn the controls, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. The browser console is clean, controls work on keyboard and gamepad, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls, mine and contest resources, witness all 20 construction steps, survive activation, destroy the Dread Engine with Nova Charges, clear the Cinder Expanse, lose all hulls, and restart. The browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

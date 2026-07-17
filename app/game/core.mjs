@@ -19,6 +19,28 @@ export function distance(ax, ay, bx, by) {
   return Math.hypot(bx - ax, by - ay);
 }
 
+export function normalizeControlVector(dx, dy, radius = 1, deadZone = 0.1) {
+  const safeRadius = Math.max(0.0001, Math.abs(radius));
+  const length = Math.hypot(dx, dy);
+  const rawMagnitude = Math.min(1, length / safeRadius);
+  const safeDeadZone = clamp(deadZone, 0, 0.95);
+  if (length <= 0.0001 || rawMagnitude <= safeDeadZone) {
+    return { x: 0, y: 0, magnitude: 0 };
+  }
+
+  const magnitude = clamp((rawMagnitude - safeDeadZone) / (1 - safeDeadZone), 0, 1);
+  return {
+    x: (dx / length) * magnitude,
+    y: (dy / length) * magnitude,
+    magnitude,
+  };
+}
+
+export function quantizeThrustMagnitude(magnitude, bands = 6) {
+  const safeBands = Math.max(1, Math.round(bands));
+  return Math.round(clamp(magnitude, 0, 1) * safeBands) / safeBands;
+}
+
 export function circlesOverlap(a, b) {
   const radius = a.radius + b.radius;
   const dx = a.x - b.x;
