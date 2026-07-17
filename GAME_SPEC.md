@@ -1,12 +1,12 @@
 # VOIDFORGE Game Specification
 
-Version: 0.1 · build 01.35
+Version: 0.1 · build 01.36
 Title: **VOIDFORGE**  
 Genre: high-resolution multidirectional arcade shooter
 
 ## Product goal
 
-Build a polished, immediately playable browser game about piloting the Vesper to mine Flux Shards while enemy Fabricators use the same resource to assemble the Dread Engine. The experience should move from controlled extraction to mounting interference to a short, violent pursuit across the Cinder Expanse. All names, art, dialogue, music, effects, and code are original.
+Build a polished, immediately playable browser game about piloting the Vesper to mine Flux Shards while enemy Fabricators use the same resource to assemble the Dread Engine. The experience should move from controlled extraction to mounting interference to a short, violent pursuit across a cycle of original named arenas. All names, art, dialogue, music, effects, and code are original.
 
 ## Platform and rendering
 
@@ -14,6 +14,7 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 - Web Audio API for generated effects and adaptive layers
 - Desktop browsers first, with keyboard and standard gamepads preserved alongside touch input
 - 1920×1080 logical design space, sharp scaling through 3840×2160, and responsive phone portrait and landscape presentations
+- Title, briefing, HUD, and overlay typography retain 1080p-equivalent apparent size at 4K; compact touch layouts wrap preflight actions and preserve the named-arena identity before secondary modifiers
 - 60 FPS target; simulation isolated from rendering with clamped delta time
 - Hardware-accelerated particles, selective bloom, lighting, distortion, and post-processing
 
@@ -26,7 +27,7 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 5. **Contain:** attack Fabricators and Sentinels while the Dread Engine gains one visible module per delivered enemy shard.
 6. **Survive:** at 20 modules the Dread Engine enters a 2.5-second in-world Awakening while the camera opens slightly. The Vesper remains controllable, but the Engine brakes and cannot pursue or deal contact damage until alignment completes.
 7. **Strike:** evade its predicted pursuit and radial disruption wave, then launch homing Nova Charges. Planetoids, Sentinels, Fabricators, and hostile bolts can intercept them.
-8. **Advance:** 13 successful hits overload the Dread Engine, clear the Cinder Expanse, and begin a new, harder run.
+8. **Advance:** 13 successful hits overload the Dread Engine, clear the current arena, and carry the run into the next tactical archetype.
 
 The resource race must remain live. At a full 20-charge inventory, touching a crystal leaves it in the field rather than deleting it. A deterministic phase-aware reserve check counts unmined, loose, carried, stored, and launched Flux according to whether construction or assault is active. When the remaining reserve cannot complete the mandatory phase, a 1.35-second scanner/audio warning precedes one nearby recovery planetoid carrying 3–6 shards; recovery then observes a 7.5-second cooldown. Tutorial, showcase, profile, paused, destroyed, and scoring-locked states cannot create recovery resources.
 
@@ -40,9 +41,9 @@ All values are data-driven and subject to playtesting.
 | --- | --- |
 | World | 9,200×6,200, bounded edges |
 | Default camera | 1.0×; up to 15% zoom-out under severe threat |
-| Asteroids | 22 active; 3–6 shards each |
+| Asteroids | 34 active; 3–6 shards each |
 | Fabricators | 5 active; respawn after 6–10 s |
-| Sentinels | 2 active; pressure rises with build progress |
+| Sentinels | 3 active; pressure rises with build progress |
 | Dread Engine construction | 20 delivered shards |
 | Dread Engine durability | 13 charge hits |
 | Charge inventory | 20 maximum |
@@ -51,6 +52,19 @@ All values are data-driven and subject to playtesting.
 | Arena Clear presentation | 5.5 s with core, time, hull, and total breakdown |
 | Expected first activation | 120–180 s without active containment |
 | Expected arena duration | 4–6 min |
+
+## Named arena cycle
+
+Field progression cycles four original tactical identities instead of increasing every pressure axis together:
+
+| Arena | Fields | Primary pressure | Non-color identity |
+| --- | --- | --- | --- |
+| **Cinder Expanse** | 1, 5, 9… | Nominal first field; Tier II scarcity and guard pressure | Mixed wrecks, rigs, and fractured relay lanes |
+| **Forge Wake** | 2, 6, 10… | Faster Fabricator harvesting and heavier economic pressure | Relay screens and an industrial forge ring |
+| **Razor Veil** | 3, 7, 11… | More Sentinels, faster attack movement, and stronger Nova interception | Wreck belts and narrow debris lanes |
+| **Shard Reef** | 4, 8, 12… | Many more planetoids with thinner individual Flux veins | Mining rigs and a dense fracture-body composition |
+
+Fields 1–4 establish Tier I. Fields 5–8 repeat each arena at bounded Tier II pressure. Field 9 and later continue cycling the four identities while Tier II counts, speeds, yield, guarding, and interception remain hard-capped. Every profile exposes an arena name and fiction line, pressure label, two HUD modifiers, palette, landmark variant, and explicit repair policy. Field 01 disables active-Engine repair; every later field enables the existing one-node-per-delivery rule.
 
 ## Flight and controls
 
@@ -79,6 +93,7 @@ The table lists default bindings. **Help → Control calibration** exposes persi
 - Each stick captures its active pointer so a drag can leave the pad. Pointer up, cancellation, or lost capture releases that stick and prevents stuck movement or fire.
 - Blur, page hide, and orientation changes clear held touch input. Moving the page to the background during play also pauses automatically.
 - Phone portrait and landscape layouts use safe-area insets, responsive stick placement, and HUD spacing that keeps controls and critical information distinct.
+- Short landscape keeps the arena name and pressure readable at 9px minimum while dropping one redundant secondary modifier when four chips cannot fit safely.
 - Keyboard and gamepad controls remain active when touch controls are available.
 
 ## First-run tutorial
@@ -91,11 +106,12 @@ The normal first run is a short, non-modal guided flight layered over active pla
 4. **Mission loop:** explain that Fabricators build the Dread Engine at 20 deliveries and that 13 Nova hits destroy it, then let the player choose **Begin mission**.
 
 - Tutorial progression listens for input-neutral gameplay events—thrust, shard extraction, and shard collection—so keyboard, gamepad, and touch have identical completion rules while presenting device-appropriate instructions.
+- On the visible Mission loop coachmark, a rising south-face-button edge acknowledges **Begin mission** for gamepad-only pilots. That edge is consumed until release so it cannot also fire or latch the primary laser; a held button or a hidden coachmark never completes training.
 - Completed facts are retained even when the player acts ahead of the visible prompt. The state machine advances past any already-satisfied stage instead of requiring the action again.
 - Fabricator deliveries are held while training is active, and the emitted tutorial crystal receives a persistent shape-based targeting bracket so the learning flow cannot be overtaken by construction or an ambiguous pickup.
 - **Skip** is available at every stage. In the ordinary first-run path, either Skip or completion writes `voidforge-tutorial-v1-complete=true`, preventing the tutorial from appearing on later launches.
 - **Help → Replay guided flight** starts again at Move without clearing or rewriting the saved first-run result.
-- When speech synthesis is supported, the Vesper flight-guide Voice defaults on and speaks each stage once on entry using original input-neutral copy. The first-flight title and Help expose compact Voice on/off controls, persisted as `voidforge-guide-voice`; touch titles always expose 44px Sound and Voice controls so returning players can set them before the opening cue.
+- When speech synthesis is supported, the Vesper flight-guide Voice defaults on and speaks each stage once on entry using original input-neutral copy. The first-flight title and Help expose compact Voice on/off controls, persisted as `voidforge-guide-voice`; touch titles always expose 44px Sound, Voice, and How to play controls so returning players can set audio and open the manual before the opening cue.
 - `?tutorial=1` forces the normal advancing flow and `?tutorial=0` suppresses it. `?tutorial=move|mine|collect|threat` forces and pins one deterministic stage; `threat` represents Mission loop. All explicit tutorial overrides take precedence and are non-persistent.
 - In the absence of an explicit tutorial override, `?showcase=...` and `?profile=1` suppress onboarding so deterministic captures and performance samples remain unchanged.
 - Phone portrait and landscape layouts enlarge tutorial copy and its Skip/Begin mission controls so onboarding remains readable and operable above the touch controls.
@@ -186,6 +202,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Weapons and impacts use original synthesized transients with stereo positioning and distance rolloff.
 - Every installed module adds a mechanical strike and another element to the adaptive rhythm bed.
 - At 5, 10, 15, and 19 modules, original warning motifs escalate without speech spam.
+- Dread Engine activation adds one original sub-bass impact plus a mid-bass harmonic that remains audible on phone speakers; both remain under the Sound master.
 - Predictive contact danger uses synchronized text and warning audio when the nearby Engine's closing speed crosses its threat threshold, with a 2.4-second cue cooldown.
 - The disruption charge has a dedicated warning tone synchronized with its visible text and segmented ring; the expanding wave does not depend on speech.
 - The optional Vesper flight guide uses browser speech synthesis for tutorial-step entry and training completion. Outside training, its mission-cue allowlist is limited to mission start, assembly critical, and Engine awake.
@@ -202,7 +219,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 - Reduced Flashing: replaces full-screen flashes and additive warning pulses with steady, normal-blend warnings while retaining text, ring geometry, and timing
 - Effect Intensity: Low / Standard / High particle and bloom presets
 - Three scene-wide color-vision transforms plus shape-coded contacts and meters
-- Master Sound plus a subordinate persisted Voice control on the first-flight title and in Help
+- Master Sound plus a subordinate persisted Voice control and preflight How to play action on touch titles and in Help
 - Rebindable keyboard actions and adjustable gamepad dead zone
 - Toggle/hold options for primary fire; pause on focus loss
 - Swappable touch handedness, safe-area-aware portrait/landscape layouts, and action targets sized for touch
@@ -212,7 +229,7 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 
 ## Game states and progression
 
-Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. Hull Lost and Arena Clear are explicit, short presentation phases layered over the field; they hide touch flight controls, reject gameplay input, and freeze the field/chain clock without a long cinematic. Arena Clear additionally rejects further scoring and enemy spawning, clears pending boss hazards, and preserves score, hulls, Nova Charges, extra-hull progress, and high score into the next field. First-run guidance and the timed Dread Engine Awakening remain event-driven phases within playing. Pause freezes lifecycle and boss timers; reset, destruction, and game over cannot leave a pending disruption attack alive. The title enters a silent, non-scoring gameplay attract demonstration after 10 idle seconds; its deterministic 30-second loop gives mining, construction, pursuit, and disruption 7.5 seconds each, and takeover starts a fresh normal run. The first release contains a complete **Cinder Expanse** arena. Repeated clears modestly increase coordination, speed, scarcity, and interception behavior before increasing raw enemy count. Additional named arenas are deferred until their fiction, palettes, and modifiers can be developed as original material.
+Required states: title/attract, instructions, playing, paused, hull lost, arena clear, game over, and restart. Hull Lost and Arena Clear are explicit, short presentation phases layered over the field; they hide touch flight controls, reject gameplay input, and freeze the field/chain clock without a long cinematic. Arena Clear additionally rejects further scoring and enemy spawning, clears pending boss hazards, preserves score, hulls, Nova Charges, extra-hull progress, and high score, names the secured arena, and previews the next arena. First-run guidance and the timed Dread Engine Awakening remain event-driven phases within playing. Pause freezes lifecycle and boss timers and names the current arena; reset, destruction, and game over cannot leave a pending disruption attack alive. The title enters a silent, non-scoring gameplay attract demonstration after 10 idle seconds; its deterministic 30-second loop gives mining, construction, pursuit, and disruption 7.5 seconds each, and takeover starts a fresh normal run. Cinder Expanse, Forge Wake, Razor Veil, and Shard Reef cycle indefinitely across two bounded pressure tiers.
 
 ## Performance and verification
 
@@ -229,10 +246,11 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - `app/game/input-settings.mjs` isolates sanitized persisted calibration and merged input routing. `tests/input-settings.test.mjs` verifies immutable defaults, conflict-swapping rebinds, reserved-key rejection, 5%–40% radial dead-zone behavior, nonzero connected-pad slots, hold/toggle edges, and lock/reset cleanup.
 - `app/game/resource-liveness.mjs` isolates phase-correct Flux-budget accounting and bounded recovery sizing. Its tests cover construction versus assault inventory, secure-state suppression, malformed counts, immutable results, and 3–6-shard recovery bounds.
 - `app/game/radar-contacts.mjs` isolates contact projection and deterministic priority. Its tests cover persistent off-range Engine bearing, threat ordering, nearest-crystal/planetoid reservations, hard caps, player-relative rotation, and malformed inputs. Core tests separately cover Field 01 repair denial plus exactly-one-node eligible later-field repairs.
+- `app/game/field-progression.mjs` isolates the four named arena identities, two bounded pressure tiers, tactical emphasis, and explicit repair policy. Its tests cover immutable deterministic profiles, economy/combat/resource/scarcity separation, late-field cycling, and hard speed/population caps.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 - Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
 - Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight, optionally hear its original Vesper guide, skip or replay it, locate mineable bodies and loose Flux on the shape-coded scanner, mine and contest resources without a finite-supply softlock, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, counter explicit later-field repairs, read the scored Arena Clear summary, carry the run into another field, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight using touch, keyboard, or gamepad alone, optionally hear its original Vesper guide, skip or replay it, locate mineable bodies and loose Flux on the shape-coded scanner, mine and contest resources without a finite-supply softlock, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, counter explicit later-field repairs, read the scored Arena Clear summary, carry the run through four distinct named arena archetypes and two bounded tiers, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

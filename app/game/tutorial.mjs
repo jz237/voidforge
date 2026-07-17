@@ -6,6 +6,24 @@ export const TUTORIAL_STORAGE_KEY = "voidforge-tutorial-v1-complete";
 
 export const TUTORIAL_STEPS = Object.freeze(["move", "mine", "collect", "threat"]);
 
+/**
+ * The south gamepad button doubles as primary fire, so tutorial completion is
+ * accepted only on its rising edge while the final coachmark is actually
+ * visible. The runtime consumes that edge before routing fire.
+ * @param {{ step?: string | null, coachmarkVisible?: boolean, confirmPressed?: boolean, previousConfirmPressed?: boolean }} [options]
+ */
+export function tutorialGamepadAcknowledgeRequested({
+  step = null,
+  coachmarkVisible = false,
+  confirmPressed = false,
+  previousConfirmPressed = false,
+} = {}) {
+  return step === "threat"
+    && coachmarkVisible === true
+    && confirmPressed === true
+    && previousConfirmPressed !== true;
+}
+
 const EVENT_FACT = Object.freeze({
   "player-thrusted": "moved",
   "shard-extracted": "mined",

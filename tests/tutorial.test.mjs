@@ -6,6 +6,7 @@ import {
   advanceTutorial,
   createTutorialState,
   resolveTutorialMode,
+  tutorialGamepadAcknowledgeRequested,
 } from "../app/game/tutorial.mjs";
 
 test("the first-run tutorial advances through real gameplay milestones", () => {
@@ -53,4 +54,32 @@ test("tutorial overrides take precedence without mutating first-run persistence"
   assert.equal(resolveTutorialMode({ completed: false, showcase: true }).enabled, false);
   assert.equal(resolveTutorialMode({ completed: false, profile: true }).enabled, false);
   assert.equal(resolveTutorialMode({ query: "invalid", completed: false }).enabled, true);
+});
+
+test("gamepad acknowledgement consumes only a visible final-step rising edge", () => {
+  assert.equal(tutorialGamepadAcknowledgeRequested({
+    step: "threat",
+    coachmarkVisible: true,
+    confirmPressed: true,
+    previousConfirmPressed: false,
+  }), true);
+  assert.equal(tutorialGamepadAcknowledgeRequested({
+    step: "threat",
+    coachmarkVisible: true,
+    confirmPressed: true,
+    previousConfirmPressed: true,
+  }), false);
+  assert.equal(tutorialGamepadAcknowledgeRequested({
+    step: "threat",
+    coachmarkVisible: false,
+    confirmPressed: true,
+    previousConfirmPressed: false,
+  }), false);
+  assert.equal(tutorialGamepadAcknowledgeRequested({
+    step: "collect",
+    coachmarkVisible: true,
+    confirmPressed: true,
+    previousConfirmPressed: false,
+  }), false);
+  assert.equal(tutorialGamepadAcknowledgeRequested(), false);
 });

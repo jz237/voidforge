@@ -27,6 +27,7 @@ import {
   advanceTutorial,
   createTutorialState,
   resolveTutorialMode,
+  tutorialGamepadAcknowledgeRequested,
 } from "./tutorial.mjs";
 import {
   ENGINE_DIALOGUE,
@@ -54,7 +55,10 @@ import {
   resetAttractTimeline,
   resolveAttractTimeline,
 } from "./attract-mode.mjs";
-import { getFieldProgressionProfile } from "./field-progression.mjs";
+import {
+  getFieldProgressionProfile,
+  sanitizeFieldNumber,
+} from "./field-progression.mjs";
 import {
   assessFluxLiveness,
   recommendedRecoveryShardCount,
@@ -120,6 +124,8 @@ type RunPhaseState =
   | {
       kind: "arena-clear";
       field: number;
+      arenaName: string;
+      nextArenaName: string;
       elapsedSeconds: number;
       corePoints: number;
       timeBonus: number;
@@ -169,6 +175,9 @@ interface HudState {
   contacts: RadarContact[];
   threatLevel: number;
   tacticalStatus: string;
+  arenaKey: string;
+  arenaName: string;
+  pressureTier: number;
   pressureLabel: string;
   fieldModifiers: readonly string[];
 }
@@ -486,6 +495,9 @@ const INITIAL_HUD: HudState = {
   contacts: [],
   threatLevel: 0,
   tacticalStatus: "SECTOR QUIET",
+  arenaKey: INITIAL_FIELD_PROFILE.arenaKey,
+  arenaName: INITIAL_FIELD_PROFILE.arenaName,
+  pressureTier: INITIAL_FIELD_PROFILE.pressureTier,
   pressureLabel: INITIAL_FIELD_PROFILE.pressureLabel,
   fieldModifiers: INITIAL_FIELD_PROFILE.hudModifiers,
 };
@@ -730,8 +742,9 @@ function TutorialCoachmark({
           ))}
         </div>
         {step === "threat" && (
-          <button type="button" className="tutorial-continue" onClick={onComplete}>
+          <button type="button" className="tutorial-continue" onClick={onComplete} aria-label="Begin mission">
             Begin mission
+            <span className="tutorial-gamepad-hint" aria-hidden="true"> · Gamepad A</span>
           </button>
         )}
       </div>
@@ -824,10 +837,16 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
           </div>
         </div>
       </div>
-      <div className="field-modifier-strip" aria-label={`Field pressure: ${hud.pressureLabel}`}>
+      <div
+        className="field-modifier-strip"
+        aria-label={`Field ${hud.zone}, ${hud.arenaName}, pressure tier ${hud.pressureTier}: ${hud.pressureLabel}`}
+      >
+        <span className={`field-modifier-chip arena-identity-chip arena-${hud.arenaKey}`}>
+          <b>F{hud.zone.toString().padStart(2, "0")}</b>{hud.arenaName}
+        </span>
         <span className="field-modifier-chip">{hud.pressureLabel}</span>
         {hud.fieldModifiers.map((modifier) => (
-          <span className="field-modifier-chip" key={modifier}>{modifier}</span>
+          <span className="field-modifier-chip field-modifier-detail" key={modifier}>{modifier}</span>
         ))}
       </div>
       <div className="hud-bottom">
@@ -893,7 +912,7 @@ export function VoidforgeGame() {
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [runPhase, setRunPhase] = useState<RunPhaseState>({ kind: "active" });
   const [extraHullAlert, setExtraHullAlert] = useState<{ count: number; key: number } | null>(null);
-  const [notice, setNotice] = useState<{ text: string; danger: boolean; key: number } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; detail?: string; danger: boolean; key: number } | null>(null);
   const [muted, setMuted] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceSupported, setVoiceSupported] = useState(true);
@@ -1075,7 +1094,16 @@ export function VoidforgeGame() {
     let localReducedFlashing = reducedFlashingRef.current;
     let localEffectIntensity = effectIntensityRef.current;
     let idCounter = 0;
+    let activeNoticeKey: number | null = null;
     const runtimeParams = new URLSearchParams(window.location.search);
+    const fieldOverrideEnabled = runtimeParams.has("field") && (
+      runtimeParams.has("showcase")
+      || runtimeParams.get("profile") === "1"
+      || runtimeParams.get("qa") === "arena"
+    );
+    const requestedField = fieldOverrideEnabled
+      ? sanitizeFieldNumber(runtimeParams.get("field"))
+      : 1;
     const highScorePersistenceEnabled = !runtimeParams.has("showcase")
       && runtimeParams.get("profile") !== "1"
       && !runtimeParams.has("tutorial")
@@ -1424,15 +1452,22 @@ export function VoidforgeGame() {
       refreshSpeechVoices();
       if (speechSupported()) window.speechSynthesis.addEventListener?.("voiceschanged", refreshSpeechVoices);
 
-      const notify = (text: string, danger = false) => {
+      const notify = (text: string, danger = false, detail?: string) => {
         if (localMode === "attract") return;
         const key = Date.now() + Math.floor(rng() * 10_000);
-        setNotice({ text, danger, key });
+        activeNoticeKey = key;
+        setNotice({ text, detail, danger, key });
         const timer = window.setTimeout(() => {
+          if (activeNoticeKey === key) activeNoticeKey = null;
           setNotice((current) => current?.key === key ? null : current);
           timers.delete(timer);
-        }, 2850);
+        }, detail ? 4700 : 2850);
         timers.add(timer);
+      };
+
+      const clearNotice = () => {
+        activeNoticeKey = null;
+        setNotice(null);
       };
 
       const persistHighScore = () => {
@@ -2836,7 +2871,7 @@ export function VoidforgeGame() {
         if (resetScore) {
           arcadeRun = createArcadeRunState({ lives: RULES.playerLives });
           charges = 0;
-          zone = 1;
+          zone = localMode === "playing" && fieldOverrideEnabled ? requestedField : 1;
         } else {
           arcadeRun = {
             ...arcadeRun,
@@ -2917,6 +2952,7 @@ export function VoidforgeGame() {
         spawnImpactFx(engine.x, engine.y, 0xc071ff, 250, 1.15);
         triggerShockwave(engine.x, engine.y, 1.05, 0.68);
         audio.warning(1);
+        audio.bossAwakening(panFor(engine.x));
         notify("DREAD ENGINE AWAKENING · KEEP MOVING", true);
         speakVoiceLine(ENGINE_DIALOGUE.awake, "engine");
         speakGuidance("mission:engine-awake", false);
@@ -2932,7 +2968,7 @@ export function VoidforgeGame() {
           enginePieces: pieces,
           engineHealth: engine.health,
           engineActive: engine.active,
-          repairEnabled: zone > 1,
+          repairEnabled: fieldProfile.repairEnabled,
         });
         pieces = delivery.enginePieces;
         if (delivery.kind === "repair") {
@@ -3072,6 +3108,8 @@ export function VoidforgeGame() {
           setRunPhase({
             kind: "arena-clear",
             field: zone,
+            arenaName: fieldProfile.arenaName,
+            nextArenaName: getFieldProgressionProfile(zone + 1).arenaName,
             elapsedSeconds: clearAward.wholeSeconds,
             corePoints: coreAward?.pointsAwarded ?? 0,
             timeBonus: clearAward.timeBonus,
@@ -3278,6 +3316,9 @@ export function VoidforgeGame() {
           lives: arcadeRun.lives,
           charges, zone, pieces, engineHealth: engine.health,
           engineActive: engine.active, contacts, threatLevel, tacticalStatus,
+          arenaKey: fieldProfile.arenaKey,
+          arenaName: fieldProfile.arenaName,
+          pressureTier: fieldProfile.pressureTier,
           pressureLabel: fieldProfile.pressureLabel,
           fieldModifiers: fieldProfile.hudModifiers,
         });
@@ -3375,7 +3416,7 @@ export function VoidforgeGame() {
         audio.setEngineThrust(0);
         setRunPhase({ kind: "active" });
         setExtraHullAlert(null);
-        setNotice(null);
+        clearNotice();
         refreshHud();
       };
 
@@ -3404,7 +3445,7 @@ export function VoidforgeGame() {
         audio.setEngineThrust(0);
         setScreenMode("title");
         setAttractPhase("mining");
-        setNotice(null);
+        clearNotice();
         refreshHud();
       };
 
@@ -3447,7 +3488,11 @@ export function VoidforgeGame() {
         setNotice(null);
         void audio.unlock();
         if (!tutorialMode.enabled) {
-          notify("FIELD 01 · CINDER EXPANSE");
+          notify(
+            `FIELD ${zone.toString().padStart(2, "0")} · ${fieldProfile.arenaName}`,
+            false,
+            fieldProfile.arenaTagline,
+          );
           const params = new URLSearchParams(window.location.search);
           if (!params.has("showcase") && params.get("profile") !== "1") speakGuidance("mission:start");
         }
@@ -3592,7 +3637,7 @@ export function VoidforgeGame() {
           localMode = "gameover";
           setScreenMode("gameover");
         }
-        if (["exploration", "mining", "construction", "combat", "bombardment", "hull-lost", "arena-clear", "gameover"].includes(scene)) setNotice(null);
+        if (["exploration", "mining", "construction", "combat", "bombardment", "hull-lost", "arena-clear", "gameover"].includes(scene)) clearNotice();
         cameraX = player.x;
         cameraY = player.y;
         cameraZoom = engine.active && !engine.destroyed ? 0.8 : 0.91;
@@ -3693,6 +3738,22 @@ export function VoidforgeGame() {
         }
         if (confirmPressed && !lastGamepadConfirm && (localMode === "title" || localMode === "gameover")) {
           startGame();
+        }
+        if (tutorialGamepadAcknowledgeRequested({
+          step: tutorialRuntimeRef.current.step,
+          coachmarkVisible: localMode === "playing"
+            && tutorialActiveRef.current
+            && !helpOpenRef.current
+            && activeNoticeKey === null,
+          confirmPressed,
+          previousConfirmPressed: lastGamepadConfirm,
+        })) {
+          applyTutorialEvent("acknowledge");
+          routedInputState = createInputState(inputSettingsRef.current.primaryFireMode);
+          suppressPressedInputEdges = true;
+          lastGamepadPause = pausePressed;
+          lastGamepadConfirm = confirmPressed;
+          return;
         }
         lastGamepadPause = pausePressed;
         lastGamepadConfirm = confirmPressed;
@@ -4628,7 +4689,11 @@ export function VoidforgeGame() {
           if (victoryTimer <= 0 && !holdShowcase) {
             zone += 1;
             resetWorld(false);
-            notify(`FIELD ${zone.toString().padStart(2, "0")} · ${fieldProfile.pressureLabel}`);
+            notify(
+              `FIELD ${zone.toString().padStart(2, "0")} · ${fieldProfile.arenaName}`,
+              false,
+              fieldProfile.arenaTagline,
+            );
           }
         }
 
@@ -5477,7 +5542,7 @@ export function VoidforgeGame() {
                   Watch mission loop
                 </button>
                 {(tutorialRecommended || touchCapable) && (
-                  <div className="title-audio-controls" role="group" aria-label="Title audio controls" data-testid="title-audio-controls">
+                  <div className="title-audio-controls" role="group" aria-label="Title controls" data-testid="title-audio-controls">
                     {touchCapable && (
                       <button
                         className="voice-toggle"
@@ -5501,9 +5566,23 @@ export function VoidforgeGame() {
                       <span aria-hidden="true">VOX</span>
                       {voiceSupported ? voiceEnabled ? "Voice on" : "Voice off" : "Voice unavailable"}
                     </button>
+                    {touchCapable && (
+                      <button
+                        className="voice-toggle title-help-toggle"
+                        type="button"
+                        data-testid="title-help"
+                        aria-label="Open flight manual before starting"
+                        aria-controls="help-dialog"
+                        aria-expanded={helpOpen}
+                        onClick={(event) => openHelp(event.currentTarget)}
+                      >
+                        <span aria-hidden="true">?</span>
+                        How to play
+                      </button>
+                    )}
                   </div>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.35<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
+                <span className="version-mark">Vesper flight core · build 01.36<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -5586,8 +5665,9 @@ export function VoidforgeGame() {
         )}
 
         {notice && (
-          <div className={`center-alert ${notice.danger ? "danger" : ""}`} key={notice.key} aria-hidden="true">
-            {notice.text}
+          <div className={`center-alert ${notice.danger ? "danger" : ""} ${notice.detail ? "has-detail" : ""}`} key={notice.key} aria-hidden="true">
+            <span>{notice.text}</span>
+            {notice.detail && <small>{notice.detail}</small>}
           </div>
         )}
 
@@ -5619,7 +5699,10 @@ export function VoidforgeGame() {
             <section className="run-phase-panel" aria-label={`Field ${runPhase.field} clear`} aria-live="assertive">
               <p className="eyebrow">Dread signal ruptured</p>
               <h2>Arena Clear</h2>
-              <p>Field {runPhase.field.toString().padStart(2, "0")} is secure. Vesper is plotting the next pressure front.</p>
+              <p>
+                Field {runPhase.field.toString().padStart(2, "0")} · {runPhase.arenaName} is secure.
+                Next vector: {runPhase.nextArenaName}.
+              </p>
               <div className="phase-score-breakdown" aria-label="Arena clear score breakdown">
                 <div className="phase-bonus-row"><span>Core rupture</span><strong>+{formatScore(runPhase.corePoints)}</strong></div>
                 <div className="phase-bonus-row"><span>Clear time · {runPhase.elapsedSeconds}s</span><strong>+{formatScore(runPhase.timeBonus)}</strong></div>
@@ -5641,7 +5724,7 @@ export function VoidforgeGame() {
             <section className="pause-panel" aria-label="Game paused">
               <p className="eyebrow">Flight systems suspended</p>
               <h2>Paused</h2>
-              <p>The Cinder Expanse is holding its breath.</p>
+              <p>{hud.arenaName} is holding its breath.</p>
               <div className="pause-actions">
                 <button className="primary-action" onClick={() => gameApiRef.current.togglePause()}>Resume flight</button>
                 <button
@@ -5840,7 +5923,7 @@ export function VoidforgeGame() {
         </nav>}
         {touchCapable && screenMode === "title" && <p className="portrait-notice">Portrait controls active · landscape expands the tactical view</p>}
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-          {notice?.text ?? ""}
+          {notice ? `${notice.text}${notice.detail ? `. ${notice.detail}` : ""}` : ""}
         </p>
         <p className="sr-only" aria-live={voiceEnabled && !muted && voiceSupported ? "off" : "polite"} aria-atomic="true">
           {tutorialStep

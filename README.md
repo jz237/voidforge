@@ -4,7 +4,7 @@
 
 VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, retain control through its Awakening, evade predicted pursuit and radial disruption waves, and destroy it with homing Nova Charges.
 
-Current release: **build 01.35**.
+Current release: **build 01.36**.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
@@ -36,8 +36,8 @@ These are the defaults. Every keyboard action can be rebound from **Help → Con
 | Launch Nova Charge | C or Shift | East or west face button | Tap **Nova** |
 | Pause / resume | P or Escape | Menu button | Tap **Pause** |
 | Mute / unmute | M | — | Tap **Sound** |
-| Start | Enter or on-screen button | On-screen button | On-screen button |
-| Restart after game over | R or on-screen button | On-screen button | On-screen button |
+| Start | Enter or on-screen button | South face or Menu button | On-screen button |
+| Restart after game over | R or on-screen button | South face or Menu button | On-screen button |
 
 Control calibration is saved locally under `voidforge-input-settings-v1`. Rebinding a key already assigned elsewhere swaps the conflicting slots so controls remain unambiguous. Escape cancels key capture and remains available as the default secondary Pause key through **Restore defaults**. The radial gamepad dead zone is adjustable from 5% to 40% with a 14% default, and primary fire can use either **Hold to fire** or **Press to toggle** across keyboard, gamepad, and touch. **Restore defaults** resets bindings, stick response, and fire behavior together.
 
@@ -47,15 +47,15 @@ Phone portrait and landscape layouts both respect display safe areas, keep the H
 
 Touch layout and pointer behavior have been verified with browser mobile viewports and pointer-event checks. The short dense-combat mobile profile reports 60 FPS at 844×390 with a 16.8 ms p95 frame time; see the [mobile performance capture](artifacts/performance-mobile-844x390.json). This is a point-in-time browser sample, and physical-device Safari and Chrome validation remains pending.
 
-The first normal run offers a four-stage guided flight: move the Vesper, extract a Flux crystal, follow its targeting bracket to collect it, and review the Fabricator–construction–Nova mission loop. Progress comes from gameplay events rather than a particular control device, so keyboard, gamepad, and touch all advance the same tutorial and actions completed ahead of a prompt are remembered. Fabricator deliveries wait until training ends. **Skip** exits at any stage; normal completion or skipping is saved locally so the tutorial does not repeat. Open **Help** and choose **Replay guided flight** to run it again without changing that saved first-run state.
+The first normal run offers a four-stage guided flight: move the Vesper, extract a Flux crystal, follow its targeting bracket to collect it, and review the Fabricator–construction–Nova mission loop. Progress comes from gameplay events rather than a particular control device, so keyboard, gamepad, and touch all advance the same tutorial and actions completed ahead of a prompt are remembered. A gamepad-only pilot can press the south face button on the visible final coachmark to begin the mission; that acknowledgement edge is consumed until release so it cannot also fire or latch the laser. Fabricator deliveries wait until training ends. **Skip** exits at any stage; normal completion or skipping is saved locally so the tutorial does not repeat. Open **Help** and choose **Replay guided flight** to run it again without changing that saved first-run state.
 
-When browser speech synthesis is available, the optional Vesper flight-guide **Voice** defaults on and speaks each tutorial step once from an original, input-neutral script. A compact **Voice on/off** control appears on the first-flight title and in **Help**, and its preference is stored as `voidforge-guide-voice`. Touch titles always expose 44px **Sound** and **Voice** controls, including for returning pilots, so Android players can set both before the opening cue. **Sound** remains the master: muting it cancels and suppresses game audio, guide speech, and the Dread Engine's low-pitch dialogue without changing the Voice preference. Muted, disabled, hidden, or unsupported cues are never queued for later playback.
+When browser speech synthesis is available, the optional Vesper flight-guide **Voice** defaults on and speaks each tutorial step once from an original, input-neutral script. A compact **Voice on/off** control appears on the first-flight title and in **Help**, and its preference is stored as `voidforge-guide-voice`. Touch titles always expose 44px **Sound**, **Voice**, and **How to play** controls, including for returning pilots, so Android players can set audio and open the complete flight manual before the opening cue. **Sound** remains the master: muting it cancels and suppresses game audio, guide speech, and the Dread Engine's low-pitch dialogue without changing the Voice preference. Muted, disabled, hidden, or unsupported cues are never queued for later playback.
 
 Laser fire mines planetoids as well as attacking enemies. Held fire still builds extraction progress and can release Flux, making touch mining forgiving. Short controlled bursts damage the planetoid less and remain the more efficient way to recover its crystals before it breaks.
 
 ## Current boss climax
 
-At 20 installed modules, the Dread Engine enters a 2.5-second in-world Awakening. The Vesper remains controllable while the Engine brakes; pursuit and boss contact damage do not begin until alignment completes. Once active, it leads the Vesper by `clamp(distance / 1050, 0.42, 1.05)` seconds while keeping its predicted target inside 180-pixel world margins. If it comes within 560 units while closing faster than 95 units per second, predictive contact danger emits text and warning audio, limited by a 2.4-second anti-spam cooldown.
+At 20 installed modules, the Dread Engine enters a 2.5-second in-world Awakening with an original sub-bass impact and phone-audible harmonic under the Sound master. The Vesper remains controllable while the Engine brakes; pursuit and boss contact damage do not begin until alignment completes. Once active, it leads the Vesper by `clamp(distance / 1050, 0.42, 1.05)` seconds while keeping its predicted target inside 180-pixel world margins. If it comes within 560 units while closing faster than 95 units per second, predictive contact danger emits text and warning audio, limited by a 2.4-second anti-spam cooldown.
 
 Inside 1080 world units, an available disruption attack announces a 0.95-second charge with text, warning audio, and a segmented ring that does not depend on color. Its swept front expands from radius 190 to 760 over 0.82 seconds and costs one unshielded hull when crossed. The cooldown is `max(4.8, 6.4 - zone * 0.18)` seconds. Pause freezes the climax state; reset, Engine destruction, and game over clear it. Reduced Motion removes decorative rotation and shake but preserves the true gameplay ring, while Reduced Flashing replaces additive pulses with steady normal-blend warnings.
 
@@ -71,7 +71,7 @@ A surviving hit now enters a short **Hull Lost** presentation, preserves score a
 
 After 10 idle seconds, the title can enter a silent, non-scoring attract demonstration. Its deterministic 30-second loop gives mining, construction, pursuit, and disruption 7.5 seconds each. Demo actions never affect the run score or locally persisted high score, and player input immediately hands off to a fresh controllable run; the title also offers a direct demo action.
 
-Successive fields now use staged pressure profiles instead of relying first on enemy density. Early progression reduces planetoid availability and Flux yield while increasing Fabricator speed, Sentinel guard coordination, and Nova interception pressure before actor counts rise. Later stages continue with bounded population growth. Each profile also changes its pressure label, HUD modifiers, accent palette, and landmark arrangement, while fields beyond the final tuning stage retain their field number without unbounded difficulty growth.
+Successive fields now rotate through four original named arenas rather than making every pressure axis rise together. **Cinder Expanse** becomes the scarcity test, **Forge Wake** emphasizes Fabricator harvesting, **Razor Veil** concentrates Sentinel pressure and Nova interception, and **Shard Reef** supplies a dense planetoid belt with fragile Flux veins. Fields 1–4 establish those identities; Fields 5–8 repeat them at a capped Tier II; later fields keep cycling the identities while speeds, biases, and actor counts remain bounded. Every arena has its own name, fiction line, pressure label, HUD modifiers, palette, and landmark composition, and Field 2 still changes economic behavior before adding actors.
 
 Sentinel tactics now reassign the existing live population among player pressure, Fabricator/Engine guarding, and Nova interception. A valid Nova interception always takes priority, while construction progress shifts more of the same population into guard duty without silently adding enemies. When in range, each attacker follows a readable approach, charge, three-shot burst, and breakaway cadence; charge marks and movement state communicate the cycle before the bolts arrive.
 
@@ -85,9 +85,9 @@ The utility bar provides independent reduced-motion and reduced-flashing control
 
 Guide and Engine lines use browser/system speech voices, whose availability and character vary by browser and operating system. VOIDFORGE ships no recorded or reference-derived voice assets.
 
-The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K. They are point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json) and [4K](artifacts/performance-3840x2160.json) captures.
+The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Title, briefing, HUD, and overlay typography use explicit 4K scaling so interface detail retains its 1080p-equivalent apparent size. Compact touch titles wrap their preflight actions without shrinking the 44px targets, while short landscape preserves the arena name and primary pressure modifier before hiding a redundant fourth chip. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K. They are point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json) and [4K](artifacts/performance-3840x2160.json) captures.
 
-Ordered WebGL layers keep the Vesper, pickups, critical projectiles, and readability cues above atmospheric haze, near/far debris, environmental landmarks, persistent wreckage, terrain, enemies, and decorative effects. Distinct composite, mineral, industrial, and containment material families unify the player, planetoids, enemies, and Dread Engine; prebuilt panel lines, fasteners, mineral inclusions, and conduit traces appear at 4K only when measured render headroom permits. Abandoned rigs, relays, slag fields, and wrecks give the Cinder Expanse readable story landmarks without competing with combat.
+Ordered WebGL layers keep the Vesper, pickups, critical projectiles, and readability cues above atmospheric haze, near/far debris, environmental landmarks, persistent wreckage, terrain, enemies, and decorative effects. Distinct composite, mineral, industrial, and containment material families unify the player, planetoids, enemies, and Dread Engine; prebuilt panel lines, fasteners, mineral inclusions, and conduit traces appear at 4K only when measured render headroom permits. Abandoned rigs, relay screens, wreck lanes, forge rings, and dense fracture belts give every named arena a readable story composition without competing with combat.
 
 The Vesper adds shield response, weapon recoil, and a localized muzzle flash; directional speed streaks, delayed player echoes, camera lead, and bounded zoom communicate acceleration. Mining produces a readable extraction pulse and animated crystal motion. Fabricators and Sentinels pose and move according to mining, carrying, pursuit, and attack intent, while shape-coded projectile trails make fire ownership readable at speed.
 
@@ -104,7 +104,7 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/boss-behavior.mjs` — deterministic Awakening timing, bounded pursuit prediction, and swept radial-wave collision helpers
 - `app/game/arcade-run.mjs` — deterministic multiplier, high-level score transactions, extra hulls, Hull Lost reset, and Arena Clear bonus rules
 - `app/game/attract-mode.mjs` — deterministic title-idle delay and four-phase attract-loop timing
-- `app/game/field-progression.mjs` — bounded field scarcity, coordination, interception, population, palette, landmark, and HUD profiles
+- `app/game/field-progression.mjs` — deterministic named-arena cycling with bounded economic, combat, resource, palette, landmark, repair, and HUD profiles
 - `app/game/sentinel-behavior.mjs` — deterministic Sentinel role allocation, construction-driven guarding, and bounded three-shot attack cadence
 - `app/game/input-settings.mjs` — sanitized persisted keyboard bindings, radial gamepad calibration, and merged hold/toggle input routing
 - `app/game/resource-liveness.mjs` — deterministic construction/assault Flux-budget accounting and bounded recovery sizing
@@ -120,7 +120,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The boss climax, arcade-run layer, attract demo, staged field pressure, Sentinel tactics, persisted input calibration, closed Flux economy, objective-aware scanner, and later-field repair policy are shipped. Remaining work includes additional named arenas, richer multi-source lighting and adaptive audio, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax, arcade-run layer, attract demo, four-arena pressure cycle, Sentinel tactics, persisted input calibration, controller-complete onboarding, closed Flux economy, objective-aware scanner, and later-field repair policy are shipped. Remaining work includes richer multi-source lighting and adaptive audio/mix controls, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 
@@ -131,13 +131,15 @@ npm run lint
 
 Deterministic visual states are available at `/?showcase=exploration`, `mining`, `construction`, `combat`, `pursuit`, `bombardment`, `destruction`, `hull-lost`, `arena-clear`, and `gameover`.
 
+Append `&field=1` through `&field=8` to any showcase URL to render a specific arena/tier without changing persistent score. Fields 9 and later can be inspected the same way to verify the capped identity cycle.
+
 Tutorial QA uses `/?tutorial=1` to force the normal four-stage flow, `/?tutorial=0` to suppress it, or `/?tutorial=move`, `mine`, `collect`, or `threat` to pin a deterministic coachmark; `threat` is the mission-loop stage. Valid tutorial overrides take precedence over saved completion and never update it. Without an explicit override, showcase and `?profile=1` runs suppress the tutorial so captures and performance measurements remain stable.
 
 Integrated Flux-recovery QA uses `/?qa=flux-deficit&tutorial=0`. Starting that run leaves construction one module short with no field reserve, begins the normal scanner/audio telegraph, and then stabilizes the bounded recovery planetoid. QA URLs never write the saved high score.
 
 Automated spoken-guidance checks cover every tutorial line, the selected mission-cue allowlist, once-per-run delivery, the Voice storage-key contract, and no backlog after muted, disabled, hidden, or unsupported cues. Browser checks should confirm the default and persisted Voice choice, Sound-master precedence, immediate cancellation on pause, page hide, game over, Skip, master mute, Voice off, and teardown, and continued visible/live-region guidance.
 
-`tests/attract-mode.test.mjs` verifies the 10-second idle boundary, bounded frame advancement, all four 7.5-second phase transitions, and 30-second loop wrap. `tests/field-progression.test.mjs` verifies deterministic immutable profiles, behavior-and-scarcity escalation before count growth, changing visual identity, and bounded late-field tuning.
+`tests/attract-mode.test.mjs` verifies the 10-second idle boundary, bounded frame advancement, all four 7.5-second phase transitions, and 30-second loop wrap. `tests/field-progression.test.mjs` verifies deterministic immutable arena identities, four distinct tactical emphases, the two capped pressure tiers, late-field cycling, explicit repair policy, and hard population/speed bounds. Tutorial tests additionally verify that only a visible final-step gamepad rising edge acknowledges the mission briefing.
 
 `tests/sentinel-behavior.test.mjs` verifies interception priority, construction-driven guard reallocation without population growth, immutable sanitized state, and the approach/charge/exactly-three-shots/breakaway cadence. `tests/input-settings.test.mjs` verifies immutable defaults, safe persistence sanitization, conflict-swapping keyboard rebinding, 5%–40% radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior across locked and reset states.
 

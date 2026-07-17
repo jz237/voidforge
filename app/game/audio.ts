@@ -375,6 +375,48 @@ export class VoidforgeAudio {
     }
   }
 
+  /** Original activation impact: sub-bass weight plus a phone-audible harmonic. */
+  public bossAwakening(pan = 0): void {
+    this.tone({
+      wave: "sine",
+      startFrequency: 52,
+      endFrequency: 24,
+      duration: 1.18,
+      level: 0.19,
+      pan,
+      attack: 0.006,
+      filterType: "lowpass",
+      filterFrequency: 180,
+      endFilterFrequency: 72,
+      filterQ: 0.72,
+    });
+    this.tone({
+      wave: "sawtooth",
+      startFrequency: 196,
+      endFrequency: 58,
+      duration: 0.68,
+      level: 0.074,
+      pan,
+      attack: 0.004,
+      filterType: "bandpass",
+      filterFrequency: 720,
+      endFilterFrequency: 190,
+      filterQ: 1.25,
+    });
+    this.noise({
+      duration: 0.24,
+      level: 0.078,
+      pan,
+      filterType: "lowpass",
+      filterFrequency: 1_150,
+      endFilterFrequency: 120,
+      filterQ: 0.82,
+      attack: 0.001,
+      playbackRate: 0.78,
+      endPlaybackRate: 0.36,
+    });
+  }
+
   /** Rising, weighty launch sound for a homing bomb. */
   public bombLaunch(pan = 0): void {
     this.tone({

@@ -10,7 +10,7 @@ This document records deliberate differences from *Sinistar*. It is a production
 
 | Area | VOIDFORGE decision |
 | --- | --- |
-| Title and fiction | Original `VOIDFORGE` setting centered on failed containment and Flux mining in the Cinder Expanse |
+| Title and fiction | Original `VOIDFORGE` setting centered on failed containment and Flux mining across four named arenas |
 | Boss | Dread Engine: abstract concentric rings, offset pylons, and a void core; never a demonic face |
 | Boss attack | A control-preserving Awakening, bounded predictive pursuit, and a telegraphed radial disruption wave; no mouth, bite, consumption, skull, horns, or roar |
 | Player | High-resolution ivory/cyan Vesper with articulated engine vanes |
@@ -23,7 +23,7 @@ This document records deliberate differences from *Sinistar*. It is a production
 | Audio | Original Web Audio synthesis, adaptive layers, spatial effects, optional browser-spoken Vesper guidance, and original low-pitch Engine dialogue |
 | Controls | Keyboard/gamepad plus responsive touch twin sticks, six-band thrust, independent aim, one-tap Nova, swappable handedness, and persisted rebinding/dead-zone/hold-toggle calibration |
 | Accessibility | Reduced motion/flashing, color-vision presets, effect levels including FX Off, redundant alerts, and audio controls |
-| Progression | The Cinder Expanse uses original fiction, palette, layout, and escalating modifiers |
+| Progression | Cinder Expanse, Forge Wake, Razor Veil, and Shard Reef cycle through original fiction, tactical emphasis, palette, and layout across two bounded tiers |
 
 ## Similar mechanics retained intentionally
 
@@ -52,8 +52,9 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - PixiJS is preferred over Phaser because the current project already includes it and the design benefits from explicit render-layer and shader control.
 - Simulation state should remain independent of Pixi display objects so mechanics can be tested deterministically.
 - Keep touch state outside the React render hot path. Pointer capture carries a stick drag beyond its pad, while pointer up, cancellation, lost capture, focus loss, page hide, and orientation changes clear held movement and fire state.
-- Use safe-area insets and orientation-specific responsive layout rules for both phone portrait and landscape. Touch options expose a Swap control for southpaw placement without changing keyboard or gamepad bindings.
+- Use safe-area insets and orientation-specific responsive layout rules for both phone portrait and landscape. Touch preflight actions wrap without shrinking their 44px targets; short landscape keeps the arena name at 9px or larger and may suppress one redundant modifier. Touch options expose a Swap control for southpaw placement without changing keyboard or gamepad bindings.
 - Keep the four-stage tutorial state machine in `app/game/tutorial.mjs`, independent of Pixi and input hardware. It records movement, extraction, and collection facts so actions performed before their coachmark still satisfy the corresponding stage.
+- Resolve gamepad Mission-loop acknowledgement in that pure tutorial module. Accept only a rising south-face-button edge while the final coachmark is visible, then consume the shared fire edge until release so Hold and Toggle modes cannot leak a shot or latch into the mission.
 - Suppress Fabricator deposits only while the training overlay is active, protect the tutorial pickup from worker claims, and give that pickup priority in the existing targeting reticle. Normal simulation resumes immediately after Skip or Begin mission.
 - Store ordinary completion or Skip under the versioned `voidforge-tutorial-v1-complete` key. Help replay and every explicit `tutorial` query override are non-persistent; valid overrides take precedence, while showcase/profile runs suppress onboarding by default.
 - Keep spoken cue copy and gating in `app/game/spoken-guidance.mjs`. Persist the subordinate Voice choice as `voidforge-guide-voice`, default it on only when speech synthesis is supported, and consume suppressed cue IDs so enabling audio later cannot release stale guidance.
@@ -63,8 +64,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Count active field time only after training ends. Pause and Hull Lost freeze both field and chain clocks; Arena Clear snapshots the clock, locks scoring/spawning/input for 5.5 seconds, then resets the field clock and chain for the next pressure front.
 - Keep the title-idle clock and four-phase loop in `app/game/attract-mode.mjs`. Start the silent demonstration after exactly 10 idle seconds, bound frame advancement after suspension, and cycle mining, construction, pursuit, and disruption for 7.5 seconds each.
 - Treat attract play as disposable presentation state: disable score and high-score mutation, suppress game audio and speech, and let player input immediately replace it with a clean normal run.
-- Resolve bounded field tuning through `app/game/field-progression.mjs`. Field 2 changes Flux scarcity, movement pressure, guard behavior, Nova interception, palette, and landmarks before Field 3 increases actor counts; later stages increase density only within explicit caps.
-- Keep field profiles independent of rendering and deeply immutable. The runtime consumes their pressure label, HUD modifiers, palette accents, landmark variant, resource yield, AI biases, speed scales, and initial/cap counts without embedding progression policy in Pixi display objects.
+- Resolve bounded field tuning through `app/game/field-progression.mjs`. Fields 1–4 establish Cinder scarcity, Forge Fabricator pressure, Razor Sentinel/interception pressure, and Shard planetoid density; Fields 5–8 repeat those identities at capped Tier II, and later fields keep cycling identity without unbounded growth. Field 2 still changes economic behavior before adding actors.
+- Keep field profiles independent of rendering and deeply immutable. The runtime consumes their arena name/tagline/key, pressure tier and label, repair policy, HUD modifiers, palette accents, landmark variant, resource yield, AI biases, speed scales, and initial/cap counts without embedding progression policy in Pixi display objects.
 - Keep Sentinel role allocation and attack timing in `app/game/sentinel-behavior.mjs`. Nova interception is resolved before guarding and player pressure; construction progress reallocates the current live population toward guards without adding actors. Once in range, a Sentinel advances through approach, charge, exactly three 0.12-second-spaced shot events, and breakaway before approaching again.
 - Keep persisted control policy in `app/game/input-settings.mjs`. Sanitize the `voidforge-input-settings-v1` payload into deeply immutable keyboard bindings, a 5%–40% radial gamepad dead zone, and hold/toggle primary-fire behavior. Rebinding an occupied key swaps its previous slot, restricted browser/system keys are rejected, and locked/reset phases clear latches and consume held edges.
 - Keep mandatory-phase resource accounting in `app/game/resource-liveness.mjs`. Construction counts only unmined, loose, and Fabricator-carried Flux; assault additionally counts stored and launched Novas. Spawn one warned bounded recovery body only when that accounting proves a deficit, and suppress recovery in tutorial, showcase, profile, paused, destroyed, and scoring-locked states.
@@ -108,7 +109,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Full-screen white flashes are not used. Reduced Flashing is the safe default if preference detection is unavailable.
 - During Awakening and disruption, Reduced Flashing uses steady normal-blend warning geometry instead of additive pulses; text and audio redundancy are unchanged.
 - Reduced Motion, Reduced Flashing, High Contrast, Effect Intensity, FX Off, and automatic microdetail gating directly scale or disable matching shader, particle, camera, motion, and decorative-detail cues without hiding essential warnings.
-- At 4K, assets gain detail but not smaller apparent size; HUD maintains its 1080p-equivalent measurements.
+- At 4K, assets gain detail but not smaller apparent size; the title, briefing, HUD, and overlays maintain 1080p-equivalent measurements.
 - The checked-in short bombardment profile captures report 60 FPS at both 1920×1080 and 3840×2160 and a 16.8 ms 4K p95. They are point-in-time ticker samples, not a substitute for a longer representative-hardware stress run.
 
 ## Audio guardrails
@@ -116,38 +117,38 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Synthesize or record all effects anew; do not process reference samples.
 - Threat state must be readable without speech. Construction rhythm, warning tones, scanner animation, and text provide redundancy.
 - Construction warnings fire at 5, 10, 15, and 19 installed modules. Disruption charge combines dedicated text, audio, and segmented ring geometry, and its expanding front remains readable without color or speech.
-- Sound is the master for the Web Audio graph, Vesper guide, and Engine dialogue. Voice on/off is a persisted subordinate choice available on the first-flight title and in Help, while touch titles expose both 44px controls on every visit so the opening cue honors returning-player preferences.
+- Sound is the master for the Web Audio graph, Vesper guide, and Engine dialogue. Voice on/off is a persisted subordinate choice available on the first-flight title and in Help, while touch titles expose 44px Sound, Voice, and How to play controls on every visit so opening cues and onboarding honor returning-player preferences.
 - Speak each tutorial stage once on entry from input-neutral original copy. Outside tutorial completion, guide mission cues are restricted to mission start, assembly critical, and Engine awake; Engine activation and destruction may use their separate original low-pitch dialogue.
 - Muted, Voice-off, hidden, and unsupported cues are consumed without playback or queuing. Unmuting or re-enabling Voice never drains a stale backlog.
 - Pause, page hide, game over, Skip, master mute, Voice off, and teardown cancel any active browser utterance.
 - Visible coachmarks and notices are authoritative. When guide speech is disabled or unavailable, the polite live region remains active so no instruction or warning depends on browser speech.
 - Browser/system voice selection and rendering vary by platform; do not depend on a particular installed voice, timbre, language variant, or timing.
 - Spatial rolloff must not hide critical warnings.
+- Engine activation layers one original sub-bass impact with a phone-audible harmonic beneath the existing visual/text warning; it fires once per activation and remains beneath the Sound master.
 - The current release routes sub-bass beneath the Sound master; a separate sub-bass/mix control remains future work.
 - Browser audio begins only after user interaction and resumes safely after focus changes.
 
 ## Current release scope
 
-Shipped in build 01.35:
+Shipped in build 01.36:
 
 - Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
-- Bounded Cinder Expanse fields with a scanner and staged scarcity, guard coordination, Nova interception, speed, palette, landmark, HUD, and capped population profiles
+- A four-arena cycle: Cinder Expanse scarcity, Forge Wake Fabricator pressure, Razor Veil Sentinel/interception pressure, and Shard Reef planetoid density, repeated across two bounded tiers with late-field identity cycling
 - A closed Flux economy with phase-aware reserve accounting, non-wasteful full inventory, and a telegraphed bounded recovery planetoid that cannot contaminate deterministic/non-scoring modes
 - A priority-ranked player-relative scanner with persistent Engine bearing, hostile bolts, loaded/unloaded Fabricators, Sentinels, loose crystals, mineable planetoids, resource reservations, and retained touch status
 - Mining, shard collection, Fabricators, construction-aware Sentinel pressure/guard/interception roles with a telegraphed three-shot cadence, 20-step construction with 5/10/15/19 warnings, a 2.5-second control-preserving Awakening, bounded predictive pursuit, telegraphed swept disruption waves, four-class Nova interception, 13-node damage, destruction, and arena-clear transition
 - Field-policy repair: disabled in Field 01 and limited to one visibly/audibly restored node per eligible later-field loaded-Fabricator delivery
 - Centralized chained scoring with a 1.00×–5.00× HUD multiplier, a locally persisted high score, extra hulls at 25,000 then every 50,000 points, the five-hull cap, and exact clear-time/remaining-hull bonuses
 - Explicit 1.25-second Hull Lost and 5.5-second Arena Clear presentations, protected respawn, preserved score/charge inventory across a loss, scored clear breakdown, field-to-field run preservation, game over, and restart
-- Keyboard, gamepad, and responsive touch controls for phone portrait and landscape, with persisted keyboard rebinding, 5%–40% gamepad dead-zone calibration, hold/toggle primary fire, conflict-safe swaps, and default restoration
-- Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, deterministic QA overrides, and enlarged phone tutorial copy/actions
+- Keyboard, gamepad, and responsive touch controls for phone portrait and landscape, with persisted keyboard rebinding, 5%–40% gamepad dead-zone calibration, hold/toggle primary fire, conflict-safe swaps, default restoration, and consumed-edge gamepad completion of the final tutorial coachmark
+- Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, deterministic QA overrides, enlarged phone tutorial copy/actions, and a preflight touch-title How to play action
 - Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
-- Original synthesized effects and a minimal adaptive score
+- Original synthesized effects, a dedicated Engine-activation sub-bass/harmonic impact, and a minimal adaptive score
 - Accessibility settings listed in `GAME_SPEC.md`
 - Deterministic test mode, attract-mode/field-progression/Sentinel-behavior/input-settings/arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
 
 ## Remaining parity backlog
 
-- Add additional named arenas beyond the staged Cinder Expanse field profiles.
 - Extend richer multi-source lighting, the adaptive score and audio layers (including independent mix/sub-bass controls), destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
 - Complete physical-device Safari/Chrome touch validation and longer metadata-bearing 1080p/4K maximum-density profiles with automated thresholds. The existing short profile JSON files remain useful snapshots, not hardware certification.
 - Add browser-level climax checks for retained Awakening control, suppression of premature pursuit/contact damage, predictive contact-warning thresholds and anti-spam, disruption text/audio/ring synchronization, pause freezing, reset/destruction/game-over cleanup, and Reduced Motion/Reduced Flashing behavior.
@@ -161,7 +162,8 @@ Shipped in build 01.35:
 - [x] Deterministic boss tests cover the 2.5-second Awakening countdown, bounded pursuit prediction, and swept-wave collision without tunneling.
 - [x] Deterministic arcade-run tests cover score rounding, the 4.5-second multiplier window, Hull Lost reset, multi-threshold extra hulls, the five-hull cap, and Arena Clear bonuses.
 - [x] Deterministic attract-mode tests cover the 10-second idle boundary, bounded advancement, four-phase timing, and 30-second loop wrap.
-- [x] Deterministic field-progression tests cover immutable profiles, scarcity and coordination before actor-count growth, visual variants, and bounded late-field tuning.
+- [x] Deterministic field-progression tests cover immutable profiles, four named tactical archetypes, two bounded tiers, late-field identity cycling, explicit repair policy, and hard speed/population caps.
+- [x] Deterministic tutorial tests cover visible final-coachmark gamepad rising-edge acknowledgement and reject holds, hidden coachmarks, and earlier steps.
 - [x] Deterministic Sentinel-behavior tests cover interception priority, construction-driven guard reallocation without count growth, immutable state, and the approach/charge/three-shot/breakaway cadence.
 - [x] Deterministic input-settings tests cover safe persistence sanitization, immutable defaults, conflict-swapping rebinding, radial dead-zone calibration, connected-pad selection, and hold/toggle edge behavior.
 - [x] Deterministic Flux-liveness tests cover construction/assault accounting, secure suppression, sanitization, immutable results, and bounded recovery sizing.
@@ -185,4 +187,4 @@ Shipped in build 01.35:
 - [ ] Held fire can extract Flux, while short controlled bursts preserve more planetoid yield.
 - [ ] Portrait and landscape touch layouts preserve safe areas; Swap supports southpaw play; cancellation and background paths release held input and pause safely.
 - [ ] Validate touch on physical-device Safari and Chrome; current mobile coverage is limited to browser viewport and pointer-event verification.
-- [ ] The Cinder Expanse can be won, lost, paused, restarted, and advanced without console errors.
+- [ ] Every named arena can be won, lost, paused, restarted, and advanced without console errors.

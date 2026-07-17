@@ -1,7 +1,42 @@
 export const MIN_FIELD_NUMBER = 1;
-export const MAX_FIELD_NUMBER = 99;
+export const MAX_FIELD_NUMBER = Number.MAX_SAFE_INTEGER;
+export const ARENA_ARCHETYPE_COUNT = 4;
+export const MAX_PRESSURE_TIER = 2;
+export const FIELD_PROFILE_STAGE_COUNT = ARENA_ARCHETYPE_COUNT * MAX_PRESSURE_TIER;
 
+const ARENA_IDENTITIES = Object.freeze([
+  Object.freeze({
+    arenaKey: "cinder-expanse",
+    arenaName: "CINDER EXPANSE",
+    archetype: "scarcity",
+    arenaTagline: "Fractured ore drifts through the wake of a cooling star.",
+  }),
+  Object.freeze({
+    arenaKey: "forge-wake",
+    arenaName: "FORGE WAKE",
+    archetype: "fabricator",
+    arenaTagline: "Abandoned relays feed accelerated Fabricator harvest lanes.",
+  }),
+  Object.freeze({
+    arenaKey: "razor-veil",
+    arenaName: "RAZOR VEIL",
+    archetype: "sentinel",
+    arenaTagline: "Sentinel screens tighten around every viable Nova vector.",
+  }),
+  Object.freeze({
+    arenaKey: "shard-reef",
+    arenaName: "SHARD REEF",
+    archetype: "planetoid",
+    arenaTagline: "Dense fracture bodies turn mining lanes into cover and hazard.",
+  }),
+]);
+
+// Four original arena archetypes repeat at two bounded pressure tiers. The
+// identity continues cycling after Field 8, while the simulation values stay
+// capped at Tier II so an endless run keeps changing tactics without allowing
+// actor counts or speeds to grow without limit.
 const FIELD_STAGES = Object.freeze([
+  // Tier I · introductory archetype cycle.
   Object.freeze({
     pressureLabel: "NOMINAL",
     planetoidCount: 34,
@@ -23,13 +58,13 @@ const FIELD_STAGES = Object.freeze([
     hudModifiers: Object.freeze(["FLUX 100%", "ESCORTS LOOSE"]),
   }),
   Object.freeze({
-    pressureLabel: "ESCORT BIAS",
+    pressureLabel: "HARVEST BIAS",
     planetoidCount: 32,
     planetoidYieldScale: 0.9,
-    fabricatorSpeedScale: 1.08,
-    sentinelSpeedScale: 1.04,
-    guardBias: 0.14,
-    novaInterceptionBias: 0.1,
+    fabricatorSpeedScale: 1.13,
+    sentinelSpeedScale: 1.02,
+    guardBias: 0.18,
+    novaInterceptionBias: 0.08,
     initialCounts: Object.freeze({ fabricators: 5, sentinels: 3 }),
     capCounts: Object.freeze({ fabricators: 6, sentinels: 6 }),
     paletteKey: "violet",
@@ -40,16 +75,16 @@ const FIELD_STAGES = Object.freeze([
       energy: 0xd685ff,
     }),
     landmarkVariant: "relay-screen",
-    hudModifiers: Object.freeze(["FLUX -10%", "GUARD +14%"]),
+    hudModifiers: Object.freeze(["HARVEST +13%", "GUARD +18%"]),
   }),
   Object.freeze({
-    pressureLabel: "NOVA SCREEN",
-    planetoidCount: 30,
-    planetoidYieldScale: 0.82,
-    fabricatorSpeedScale: 1.13,
-    sentinelSpeedScale: 1.09,
-    guardBias: 0.28,
-    novaInterceptionBias: 0.24,
+    pressureLabel: "SENTINEL BIAS",
+    planetoidCount: 32,
+    planetoidYieldScale: 0.9,
+    fabricatorSpeedScale: 1.05,
+    sentinelSpeedScale: 1.16,
+    guardBias: 0.26,
+    novaInterceptionBias: 0.34,
     initialCounts: Object.freeze({ fabricators: 5, sentinels: 4 }),
     capCounts: Object.freeze({ fabricators: 7, sentinels: 7 }),
     paletteKey: "ion",
@@ -60,16 +95,16 @@ const FIELD_STAGES = Object.freeze([
       energy: 0x8d9cff,
     }),
     landmarkVariant: "wreck-belt",
-    hudModifiers: Object.freeze(["NOVA SCREEN +24%", "SENTINELS +1"]),
+    hudModifiers: Object.freeze(["SENTINELS +1", "NOVA SCREEN +34%"]),
   }),
   Object.freeze({
-    pressureLabel: "SUPPLY DENIAL",
-    planetoidCount: 28,
-    planetoidYieldScale: 0.74,
-    fabricatorSpeedScale: 1.18,
-    sentinelSpeedScale: 1.14,
-    guardBias: 0.42,
-    novaInterceptionBias: 0.38,
+    pressureLabel: "FRACTURE BELT",
+    planetoidCount: 40,
+    planetoidYieldScale: 0.86,
+    fabricatorSpeedScale: 1.12,
+    sentinelSpeedScale: 1.1,
+    guardBias: 0.24,
+    novaInterceptionBias: 0.2,
     initialCounts: Object.freeze({ fabricators: 6, sentinels: 4 }),
     capCounts: Object.freeze({ fabricators: 8, sentinels: 8 }),
     paletteKey: "ember",
@@ -80,18 +115,19 @@ const FIELD_STAGES = Object.freeze([
       energy: 0x63d8ff,
     }),
     landmarkVariant: "mining-rigs",
-    hudModifiers: Object.freeze(["FLUX -26%", "GUARD +42%"]),
+    hudModifiers: Object.freeze(["BODIES +25%", "FLUX VEINS -14%"]),
   }),
+  // Tier II · the same identities with capped high-pressure tuning.
   Object.freeze({
-    pressureLabel: "TIGHT FORMATION",
-    planetoidCount: 27,
-    planetoidYieldScale: 0.7,
-    fabricatorSpeedScale: 1.21,
-    sentinelSpeedScale: 1.18,
-    guardBias: 0.5,
-    novaInterceptionBias: 0.46,
-    initialCounts: Object.freeze({ fabricators: 6, sentinels: 5 }),
-    capCounts: Object.freeze({ fabricators: 8, sentinels: 9 }),
+    pressureLabel: "ASH SCARCITY",
+    planetoidCount: 24,
+    planetoidYieldScale: 0.6,
+    fabricatorSpeedScale: 1.22,
+    sentinelSpeedScale: 1.2,
+    guardBias: 0.52,
+    novaInterceptionBias: 0.5,
+    initialCounts: Object.freeze({ fabricators: 7, sentinels: 5 }),
+    capCounts: Object.freeze({ fabricators: 9, sentinels: 9 }),
     paletteKey: "verdigris",
     accentColors: Object.freeze({
       ambient: 0x3f6a62,
@@ -100,17 +136,17 @@ const FIELD_STAGES = Object.freeze([
       energy: 0xb18cff,
     }),
     landmarkVariant: "broken-relays",
-    hudModifiers: Object.freeze(["ESCORTS TIGHT", "NOVA SCREEN +46%"]),
+    hudModifiers: Object.freeze(["FLUX -40%", "GUARD +52%"]),
   }),
   Object.freeze({
-    pressureLabel: "SATURATION",
-    planetoidCount: 26,
+    pressureLabel: "HARVEST SURGE",
+    planetoidCount: 27,
     planetoidYieldScale: 0.67,
-    fabricatorSpeedScale: 1.24,
-    sentinelSpeedScale: 1.21,
-    guardBias: 0.57,
-    novaInterceptionBias: 0.53,
-    initialCounts: Object.freeze({ fabricators: 7, sentinels: 5 }),
+    fabricatorSpeedScale: 1.32,
+    sentinelSpeedScale: 1.18,
+    guardBias: 0.62,
+    novaInterceptionBias: 0.48,
+    initialCounts: Object.freeze({ fabricators: 8, sentinels: 5 }),
     capCounts: Object.freeze({ fabricators: 9, sentinels: 9 }),
     paletteKey: "ultraviolet",
     accentColors: Object.freeze({
@@ -120,18 +156,18 @@ const FIELD_STAGES = Object.freeze([
       energy: 0xe38cff,
     }),
     landmarkVariant: "forge-ring",
-    hudModifiers: Object.freeze(["FLUX -33%", "SCREEN +53%"]),
+    hudModifiers: Object.freeze(["FABRICATORS +3", "HARVEST +32%"]),
   }),
   Object.freeze({
-    pressureLabel: "HEAVY SCREEN",
-    planetoidCount: 25,
-    planetoidYieldScale: 0.64,
-    fabricatorSpeedScale: 1.26,
-    sentinelSpeedScale: 1.24,
-    guardBias: 0.63,
-    novaInterceptionBias: 0.59,
-    initialCounts: Object.freeze({ fabricators: 7, sentinels: 6 }),
-    capCounts: Object.freeze({ fabricators: 9, sentinels: 10 }),
+    pressureLabel: "NOVA GAUNTLET",
+    planetoidCount: 29,
+    planetoidYieldScale: 0.72,
+    fabricatorSpeedScale: 1.18,
+    sentinelSpeedScale: 1.32,
+    guardBias: 0.58,
+    novaInterceptionBias: 0.72,
+    initialCounts: Object.freeze({ fabricators: 6, sentinels: 7 }),
+    capCounts: Object.freeze({ fabricators: 8, sentinels: 10 }),
     paletteKey: "cold-iron",
     accentColors: Object.freeze({
       ambient: 0x455d73,
@@ -140,17 +176,17 @@ const FIELD_STAGES = Object.freeze([
       energy: 0x9e8dff,
     }),
     landmarkVariant: "debris-lanes",
-    hudModifiers: Object.freeze(["GUARD +63%", "SENTINELS +3"]),
+    hudModifiers: Object.freeze(["SENTINELS +4", "SCREEN +72%"]),
   }),
   Object.freeze({
-    pressureLabel: "MAX PRESSURE",
-    planetoidCount: 24,
-    planetoidYieldScale: 0.62,
-    fabricatorSpeedScale: 1.28,
+    pressureLabel: "FRACTURE STORM",
+    planetoidCount: 42,
+    planetoidYieldScale: 0.78,
+    fabricatorSpeedScale: 1.24,
     sentinelSpeedScale: 1.26,
-    guardBias: 0.68,
-    novaInterceptionBias: 0.64,
-    initialCounts: Object.freeze({ fabricators: 8, sentinels: 6 }),
+    guardBias: 0.6,
+    novaInterceptionBias: 0.58,
+    initialCounts: Object.freeze({ fabricators: 7, sentinels: 6 }),
     capCounts: Object.freeze({ fabricators: 9, sentinels: 10 }),
     paletteKey: "redline",
     accentColors: Object.freeze({
@@ -160,11 +196,9 @@ const FIELD_STAGES = Object.freeze([
       energy: 0xd27cff,
     }),
     landmarkVariant: "dense-mixed",
-    hudModifiers: Object.freeze(["FLUX -38%", "SCREEN +64%"]),
+    hudModifiers: Object.freeze(["BODIES +31%", "FLUX VEINS -22%"]),
   }),
 ]);
-
-export const FIELD_PROFILE_STAGE_COUNT = FIELD_STAGES.length;
 
 /**
  * Normalize untrusted field input for display and deterministic profile lookup.
@@ -184,18 +218,32 @@ export function sanitizeFieldNumber(fieldNumber) {
 
 /**
  * Resolve bounded resource, coordination, presentation, and population tuning.
- * Population growth deliberately starts after Field 2, so early progression
- * changes enemy behavior and resource decisions before adding more actors.
+ * Field 2 still changes behavior before adding actors. Fields 1–4 establish the
+ * four tactical identities; Fields 5–8 repeat them at Tier II; later fields
+ * keep cycling the identities while all pressure values remain capped.
  * @param {unknown} fieldNumber
  */
 export function getFieldProgressionProfile(fieldNumber = MIN_FIELD_NUMBER) {
   const sanitizedFieldNumber = sanitizeFieldNumber(fieldNumber);
-  const profileStage = Math.min(sanitizedFieldNumber, FIELD_PROFILE_STAGE_COUNT);
-  const stage = FIELD_STAGES[profileStage - 1];
+  const arenaIndex = (sanitizedFieldNumber - 1) % ARENA_ARCHETYPE_COUNT;
+  const pressureTier = Math.min(
+    MAX_PRESSURE_TIER,
+    Math.floor((sanitizedFieldNumber - 1) / ARENA_ARCHETYPE_COUNT) + 1,
+  );
+  const stageIndex = (pressureTier - 1) * ARENA_ARCHETYPE_COUNT + arenaIndex;
+  const stage = FIELD_STAGES[stageIndex];
+  const arena = ARENA_IDENTITIES[arenaIndex];
 
   return Object.freeze({
     fieldNumber: sanitizedFieldNumber,
-    profileStage,
+    profileStage: stageIndex + 1,
+    pressureTier,
+    arenaIndex,
+    arenaKey: arena.arenaKey,
+    arenaName: arena.arenaName,
+    arenaTagline: arena.arenaTagline,
+    archetype: arena.archetype,
+    repairEnabled: sanitizedFieldNumber > MIN_FIELD_NUMBER,
     pressureLabel: stage.pressureLabel,
     planetoidCount: stage.planetoidCount,
     planetoidYieldScale: stage.planetoidYieldScale,

@@ -31,7 +31,7 @@ test("server-renders the VOIDFORGE launch screen", async () => {
 });
 
 test("ships the game, closed Flux economy, tactical scanner, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, radarContacts, audio, styles, layout, packageJson] = await Promise.all([
+  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, fieldProgression, radarContacts, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
@@ -39,6 +39,7 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
     readFile(new URL("../app/game/sentinel-behavior.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/input-settings.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/resource-liveness.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/field-progression.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/radar-contacts.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -59,9 +60,15 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(component, /data-tutorial-step=/);
   assert.match(component, /data-testid="tutorial-skip"/);
   assert.match(component, /data-testid="tutorial-replay"/);
+  assert.match(component, /Begin mission/);
+  assert.match(component, /tutorial-gamepad-hint/);
+  assert.match(component, /Gamepad A/);
+  assert.match(tutorial, /tutorialGamepadAcknowledgeRequested/);
   assert.match(component, /aria-label="Skip first-run tutorial"/);
   assert.match(component, /Turn flight guide voice off/);
   assert.match(component, /data-testid="title-audio-controls"/);
+  assert.match(component, /data-testid="title-help"/);
+  assert.match(component, /Open flight manual before starting/);
   assert.match(component, /aria-label=\{muted \? "Unmute sound" : "Mute sound"\}/);
   assert.match(component, /role="img"/);
   assert.match(component, /Tactical scanner:/);
@@ -77,8 +84,11 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(component, /Take control/);
   assert.match(component, /Back to briefing/);
   assert.match(component, /className="field-modifier-strip"/);
-  assert.match(component, /Field pressure:/);
-  assert.match(component, /build 01\.35/);
+  assert.match(component, /arena-identity-chip/);
+  assert.match(component, /field-modifier-detail/);
+  assert.match(component, /detail \? 4700 : 2850/);
+  assert.match(component, /pressure tier/);
+  assert.match(component, /build 01\.36/);
   assert.match(component, /Control calibration/);
   assert.match(component, /Gamepad dead zone/);
   assert.match(component, /Press to toggle/);
@@ -105,6 +115,11 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(component, /radar-mobile-status/);
   assert.match(resourceLiveness, /assessFluxLiveness/);
   assert.match(resourceLiveness, /recommendedRecoveryShardCount/);
+  assert.match(fieldProgression, /FORGE WAKE/);
+  assert.match(fieldProgression, /RAZOR VEIL/);
+  assert.match(fieldProgression, /SHARD REEF/);
+  assert.match(fieldProgression, /ARENA_ARCHETYPE_COUNT = 4/);
+  assert.match(fieldProgression, /repairEnabled: sanitizedFieldNumber > MIN_FIELD_NUMBER/);
   assert.match(radarContacts, /selectRadarCandidates/);
   assert.match(radarContacts, /projectRadarContact/);
   assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
@@ -116,12 +131,16 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(styles, /\.tutorial-panel\b/);
   assert.match(styles, /\.attract-overlay\b/);
   assert.match(styles, /\.field-modifier-chip\b/);
+  assert.match(styles, /\.center-alert\.has-detail\b/);
+  assert.match(styles, /\.touch-enabled \.field-modifier-detail:last-child/);
+  assert.match(styles, /@media \(min-width: 2600px\)[\s\S]*\.title-screen/);
   assert.match(styles, /\.control-settings\b/);
   assert.match(styles, /\.help-dialog-header\b/);
   assert.match(styles, /canvas:focus-visible/);
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(audio, /class VoidforgeAudio/);
   assert.match(audio, /createOscillator/);
+  assert.match(audio, /bossAwakening/);
   assert.match(packageJson, /"pixi\.js": "8\.13\.2"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await access(new URL("../public/assets/cosmic-arena.png", import.meta.url));
