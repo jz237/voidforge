@@ -31,7 +31,7 @@ test("server-renders the VOIDFORGE launch screen", async () => {
 });
 
 test("ships the game, closed Flux economy, tactical scanner, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, fieldProgression, radarContacts, audio, styles, layout, packageJson] = await Promise.all([
+  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, fieldProgression, radarContacts, emissiveLights, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
@@ -41,6 +41,7 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
     readFile(new URL("../app/game/resource-liveness.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/field-progression.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/radar-contacts.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/emissive-lights.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -88,7 +89,9 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(component, /field-modifier-detail/);
   assert.match(component, /detail \? 4700 : 2850/);
   assert.match(component, /pressure tier/);
-  assert.match(component, /build 01\.36/);
+  assert.match(component, /build 01\.37/);
+  assert.match(component, /selectEmissiveLights/);
+  assert.match(component, /presentationLayer\.filters = \[postFx\]/);
   assert.match(component, /Control calibration/);
   assert.match(component, /Gamepad dead zone/);
   assert.match(component, /Press to toggle/);
@@ -122,6 +125,9 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(fieldProgression, /repairEnabled: sanitizedFieldNumber > MIN_FIELD_NUMBER/);
   assert.match(radarContacts, /selectRadarCandidates/);
   assert.match(radarContacts, /projectRadarContact/);
+  assert.match(emissiveLights, /MAX_EMISSIVE_LIGHTS = 4/);
+  assert.match(emissiveLights, /resolveEmissiveLightLimit/);
+  assert.match(emissiveLights, /projectEmissiveLight/);
   assert.match(arcadeRun, /SCORE_CHAIN_WINDOW_SECONDS = 4\.5/);
   assert.match(arcadeRun, /FIRST_EXTRA_HULL_SCORE = 25_000/);
   assert.match(arcadeRun, /awardArenaClearBonus/);

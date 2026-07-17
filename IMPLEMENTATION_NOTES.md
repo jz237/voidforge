@@ -84,7 +84,8 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - Keep haze, story landmarks, debris, terrain, wreckage, pickups, enemies, the player, friendly shots, hostile shots, targeting/warning cues, and high effects in an explicit WebGL layer order so hazards never depend on display-list insertion timing.
 - Prebuild optional microdetail and enable it only at high render density with sustained frame-time headroom; detail changes must never alter collision geometry or silhouettes.
 - Derive restrained visual cadence from the original adaptive score envelope, with a deterministic clock before browser audio unlocks.
-- Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and color-vision transforms through the custom PixiJS v8 post-processing pipeline.
+- Run heat and shockwave refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, color-vision transforms, and a fixed four-source analytic emissive spill through one custom PixiJS v8 post-processing pass.
+- Reserve local-light roles for Vesper, the visible Engine/phase anchor, one immediate tactical source, and one mission source before filling spare slots. Compact layouts use at most two sources, Low uses one, and FX Off/High Contrast use none. Reject off-screen centers instead of clamping them to an edge, retain stable IDs with hysteresis, and never promote individual particles into lights.
 - Fall back gracefully when an optional filter is unavailable. Bloom, distortion, and grading must never gate play.
 
 ## Visual guardrails
@@ -102,7 +103,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 - The Dread Engine's asymmetric clusters, targeting beam, and contained aura communicate orientation without facial imagery. Ring alignment marks Awakening; velocity-led movement communicates pursuit; predictive collision danger uses text and warning audio; text, audio, and a segmented non-color ring telegraph disruption charge.
 - Sparks, shards, smoke, and plasma use typed visual behavior. Decorative impact shockwaves remain subordinate to projectiles, pickups, and collision cues, while the disruption ring preserves its gameplay radius and priority.
 - Sentinel and Dread Engine damage overlays persist as readable combat-state changes rather than momentary particles alone. Sentinel charge marks, three-shot spacing, and breakaway motion make the attack phase legible without relying on color.
-- Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, and cinematic trauma/danger framing share the post-processing pipeline with scene-wide color-vision transforms.
+- Localized heat and shockwave distortion, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and bounded semantic emissive spill share the post-processing pipeline with scene-wide color-vision transforms. Local spill is strictly positive, hard capped, alpha preserving, and excluded from the flash-layer warning geometry.
 - The adaptive-score envelope synchronizes restrained conduit, beacon, reticle, and machinery cadence; Reduced Flashing replaces luminance pulses with stable states.
 - Contextual HUD status, player-relative radar trails, protected targeting brackets, and persistent boss/Sentinel/projectile edge warnings redundantly identify danger, contact type, motion, bearing, and Dread Engine state.
 - Screen shake is capped, localized where possible, and fully disabled by Reduced Motion. Reduced Motion also stops decorative Awakening/wave rotation without hiding the gameplay ring.
@@ -130,7 +131,7 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 ## Current release scope
 
-Shipped in build 01.36:
+Shipped in build 01.37:
 
 - Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
 - A four-arena cycle: Cinder Expanse scarcity, Forge Wake Fabricator pressure, Razor Veil Sentinel/interception pressure, and Shard Reef planetoid density, repeated across two bounded tiers with late-field identity cycling
@@ -144,12 +145,13 @@ Shipped in build 01.36:
 - Four-stage, input-neutral first-run guidance with Skip, locally persisted completion, Help replay, deterministic QA overrides, enlarged phone tutorial copy/actions, and a preflight touch-title How to play action
 - Optional browser-synthesized Vesper guide and original Engine dialogue, governed by persisted Voice under the master Sound control
 - Original synthesized effects, a dedicated Engine-activation sub-bass/harmonic impact, and a minimal adaptive score
+- Four-source desktop/two-source compact screen-space emissive lighting for Vesper, the Dread Engine, impacts/Nova/hostile attacks, mining, loaded cargo, and Flux, with deterministic semantic reservation, off-screen rejection, slot hysteresis, eased envelopes, and no extra render pass or texture read
 - Accessibility settings listed in `GAME_SPEC.md`
 - Deterministic test mode, attract-mode/field-progression/Sentinel-behavior/input-settings/arcade-run/core/boss-behavior mechanic tests, browser smoke test, the eight required screenshot states at 1080p and 4K, plus frozen `hull-lost` and `arena-clear` presentation scenes
 
 ## Remaining parity backlog
 
-- Extend richer multi-source lighting, the adaptive score and audio layers (including independent mix/sub-bass controls), destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
+- Extend the adaptive score and audio layers (including independent mix/sub-bass controls), destructible planetoid presentation, and automatic quality scaling beyond the current staged overlays and headroom-gated microdetail.
 - Complete physical-device Safari/Chrome touch validation and longer metadata-bearing 1080p/4K maximum-density profiles with automated thresholds. The existing short profile JSON files remain useful snapshots, not hardware certification.
 - Add browser-level climax checks for retained Awakening control, suppression of premature pursuit/contact damage, predictive contact-warning thresholds and anti-spam, disruption text/audio/ring synchronization, pause freezing, reset/destruction/game-over cleanup, and Reduced Motion/Reduced Flashing behavior.
 
@@ -171,8 +173,8 @@ Shipped in build 01.36:
 - [x] Core delivery tests cover Field 01 repair denial, one-node eligible later-field repair, full-health clamping, and interleaved strike/deposit behavior.
 - [ ] Browser play verifies no pursuit/contact damage during Awakening, predictive contact-warning thresholds and 2.4-second anti-spam, one unshielded hull loss per wave, and complete pause/reset/destruction/game-over cleanup.
 - [ ] Disruption text, warning audio, and non-color ring remain synchronized and readable with Reduced Motion, Reduced Flashing, High Contrast, and FX Off.
-- [ ] Maximum-combat screenshots remain readable at 1080p and 4K.
-- [ ] Reduced Motion, Reduced Flashing, and color-vision presets are verified in play.
+- [x] Maximum-combat and lighting screenshots remain readable at 1080p and 4K, with four desktop sources and no warning-overlay filtering.
+- [x] Reduced Motion, Reduced Flashing, High Contrast, FX Off, and every color-vision preset are browser-verified in play.
 - [ ] Keyboard, gamepad, and browser-simulated touch input can complete the full loop.
 - [ ] Browser play verifies rebound keys, persisted dead-zone and fire-mode choices, default restoration, and latch cleanup across pause, Hull Lost, Arena Clear, game over, and restart.
 - [ ] Move, Extract, Collect, and Mission loop tutorial stages advance from gameplay events regardless of input device or action ordering.

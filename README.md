@@ -4,7 +4,7 @@
 
 VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, retain control through its Awakening, evade predicted pursuit and radial disruption waves, and destroy it with homing Nova Charges.
 
-Current release: **build 01.36**.
+Current release: **build 01.37**.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
@@ -85,7 +85,7 @@ The utility bar provides independent reduced-motion and reduced-flashing control
 
 Guide and Engine lines use browser/system speech voices, whose availability and character vary by browser and operating system. VOIDFORGE ships no recorded or reference-derived voice assets.
 
-The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Title, briefing, HUD, and overlay typography use explicit 4K scaling so interface detail retains its 1080p-equivalent apparent size. Compact touch titles wrap their preflight actions without shrinking the 44px targets, while short landscape preserves the arena name and primary pressure modifier before hiding a redundant fourth chip. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K. They are point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json) and [4K](artifacts/performance-3840x2160.json) captures.
+The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Title, briefing, HUD, and overlay typography use explicit 4K scaling so interface detail retains its 1080p-equivalent apparent size. Compact touch titles wrap their preflight actions without shrinking the 44px targets, while short landscape preserves the arena name and primary pressure modifier before hiding a redundant fourth chip. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K; dense touch combat reports the same p95 at 844×390. Build 01.37 browser QA confirmed the four-light desktop cap, two-light compact cap, clean shader runtime, and unlit FX Off/High Contrast baselines. These remain point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json), [4K](artifacts/performance-3840x2160.json), and [mobile](artifacts/performance-mobile-844x390.json) captures.
 
 Ordered WebGL layers keep the Vesper, pickups, critical projectiles, and readability cues above atmospheric haze, near/far debris, environmental landmarks, persistent wreckage, terrain, enemies, and decorative effects. Distinct composite, mineral, industrial, and containment material families unify the player, planetoids, enemies, and Dread Engine; prebuilt panel lines, fasteners, mineral inclusions, and conduit traces appear at 4K only when measured render headroom permits. Abandoned rigs, relay screens, wreck lanes, forge rings, and dense fracture belts give every named arena a readable story composition without competing with combat.
 
@@ -93,12 +93,13 @@ The Vesper adds shield response, weapon recoil, and a localized muzzle flash; di
 
 Damage progresses through fractured planetoid plates, disabled enemy systems, persistent capped wreckage, exposed Dread Engine conduits, and per-node boss disassembly. The Engine's aligning rings introduce Awakening, independently aimed arms and drive vents orient its velocity-led pursuit, and a protected segmented ring telegraphs the gameplay disruption front. A restrained envelope from the original adaptive score synchronizes conduits, beacons, reticles, and machinery without analyzing external audio.
 
-Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joined by expanding impact rings and shockwave distortion. The WebGL post-processing pipeline adds restrained heat refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, and scene-wide color-vision transforms. Reduced Motion, Reduced Flashing, High Contrast, effect intensity, dynamic microdetail gating, and FX Off reduce or disable decorative treatments while preserving targeting, warnings, contact shapes, and other essential feedback.
+Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joined by expanding impact rings and shockwave distortion. The single-pass WebGL post-processing pipeline adds restrained heat refraction, selective two-tap bloom, split-tone grading, cinematic trauma/danger framing, scene-wide color-vision transforms, and bounded screen-space emissive spill from Vesper, the Engine, immediate weapons/impacts, mining, cargo, and Flux. Four deterministic semantic roles cap the desktop light budget; compact layouts use at most two and Low uses one. FX Off and High Contrast submit no local lights, while warning pointers and targeting brackets live above the filtered presentation layer. Reduced Motion, Reduced Flashing, High Contrast, effect intensity, dynamic microdetail gating, and FX Off reduce or disable decorative treatments without hiding essential feedback.
 
 ## Architecture
 
 - `app/game/VoidforgeGame.tsx` — PixiJS WebGL renderer, simulation, adaptive presentation, entity damage/wreckage, camera, tactical HUD, and deterministic showcase scenes
-- `app/game/postfx.ts` — custom WebGL post-processing, cinematic danger framing, and scene-wide accessibility color transforms
+- `app/game/postfx.ts` — custom single-pass WebGL post-processing, bounded analytic emissive spill, cinematic danger framing, and scene-wide accessibility color transforms
+- `app/game/emissive-lights.mjs` — deterministic projection, off-screen rejection, semantic-role reservation, accessibility budgets, and stable light selection
 - `app/game/audio.ts` — original Web Audio synthesis, spatial effects, engine layers, warnings, and impacts
 - `app/game/spoken-guidance.mjs` — original guide/Engine copy, persisted Voice policy, cue allowlists, and no-backlog gating
 - `app/game/boss-behavior.mjs` — deterministic Awakening timing, bounded pursuit prediction, and swept radial-wave collision helpers
@@ -120,7 +121,7 @@ PixiJS loads only in the browser. The surrounding React/vinext application serve
 
 ## Remaining parity work
 
-The boss climax, arcade-run layer, attract demo, four-arena pressure cycle, Sentinel tactics, persisted input calibration, controller-complete onboarding, closed Flux economy, objective-aware scanner, and later-field repair policy are shipped. Remaining work includes richer multi-source lighting and adaptive audio/mix controls, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
+The boss climax, arcade-run layer, attract demo, four-arena pressure cycle, Sentinel tactics, persisted input calibration, controller-complete onboarding, closed Flux economy, objective-aware scanner, later-field repair policy, and bounded multi-source lighting are shipped. Remaining work includes adaptive audio/mix controls, deeper destruction and automatic-quality systems, physical-device mobile validation, browser-level climax checks, and longer metadata-bearing maximum-density performance runs. [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) tracks the detailed backlog.
 
 ## Verification
 

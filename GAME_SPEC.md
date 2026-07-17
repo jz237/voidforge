@@ -1,6 +1,6 @@
 # VOIDFORGE Game Specification
 
-Version: 0.1 · build 01.36
+Version: 0.1 · build 01.37
 Title: **VOIDFORGE**  
 Genre: high-resolution multidirectional arcade shooter
 
@@ -16,7 +16,7 @@ Build a polished, immediately playable browser game about piloting the Vesper to
 - 1920×1080 logical design space, sharp scaling through 3840×2160, and responsive phone portrait and landscape presentations
 - Title, briefing, HUD, and overlay typography retain 1080p-equivalent apparent size at 4K; compact touch layouts wrap preflight actions and preserve the named-arena identity before secondary modifiers
 - 60 FPS target; simulation isolated from rendering with clamped delta time
-- Hardware-accelerated particles, selective bloom, lighting, distortion, and post-processing
+- Hardware-accelerated particles, selective bloom, distortion, and bounded analytic screen-space lighting inside one post-processing pass
 
 ## Core loop
 
@@ -217,7 +217,8 @@ The HUD uses a modern condensed sans-serif typeface, scalable vector icons, safe
 
 - Reduced Motion: disables camera drift, zoom response, distortion, decorative Awakening/wave rotation, and most shake while preserving the static gameplay rings and their true radii
 - Reduced Flashing: replaces full-screen flashes and additive warning pulses with steady, normal-blend warnings while retaining text, ring geometry, and timing
-- Effect Intensity: Low / Standard / High particle and bloom presets
+- Effect Intensity: Full / Balanced / Low / Off presets for particles, bloom, distortion, grading, and local light budgets
+- High Contrast and FX Off retain an unlit baseline; Reduced Flashing uses eased, non-oscillating light envelopes; warning pointers, targeting brackets, HUD, and touch controls remain outside the filtered presentation layer
 - Three scene-wide color-vision transforms plus shape-coded contacts and meters
 - Master Sound plus a subordinate persisted Voice control and preflight How to play action on touch titles and in Help
 - Rebindable keyboard actions and adjustable gamepad dead zone
@@ -235,6 +236,7 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 
 - Maintain near 60 FPS at 1920×1080 during maximum encounter density on a representative mid-range desktop.
 - Render the post-processing pass at half resolution at 4K. The checked-in short profile captures report 60 FPS average and a 16.8 ms p95 at 4K, but remain point-in-time samples rather than representative-hardware certification.
+- Keep analytic local lighting in the existing pass with no new texture samples: four sources on desktop, at most two on compact layouts, one at Low, and zero for FX Off or High Contrast. Deterministic role reservation and stable IDs prevent light-count thrash.
 - Pool projectiles, fragments, and particles; avoid per-frame allocations in hot paths.
 - Cap simultaneously visible particles by accessibility preset and device performance.
 - Capture 1920×1080 and 3840×2160 frames for exploration, mining, construction, dense combat, pursuit, multi-hit damage, destruction, and game over.
@@ -247,10 +249,11 @@ Required states: title/attract, instructions, playing, paused, hull lost, arena 
 - `app/game/resource-liveness.mjs` isolates phase-correct Flux-budget accounting and bounded recovery sizing. Its tests cover construction versus assault inventory, secure-state suppression, malformed counts, immutable results, and 3–6-shard recovery bounds.
 - `app/game/radar-contacts.mjs` isolates contact projection and deterministic priority. Its tests cover persistent off-range Engine bearing, threat ordering, nearest-crystal/planetoid reservations, hard caps, player-relative rotation, and malformed inputs. Core tests separately cover Field 01 repair denial plus exactly-one-node eligible later-field repairs.
 - `app/game/field-progression.mjs` isolates the four named arena identities, two bounded pressure tiers, tactical emphasis, and explicit repair policy. Its tests cover immutable deterministic profiles, economy/combat/resource/scarcity separation, late-field cycling, and hard speed/population caps.
+- `app/game/emissive-lights.mjs` isolates projection, off-screen rejection, semantic role reservation, preset caps, stable hysteresis, color/radius sanitization, and immutable results. Static contracts verify the four-source single-pass shader, positive capped lift, alpha preservation, and protected warning layer.
 - Pinned `tutorial=move|mine|collect|threat` modes provide stable coachmarks for desktop and `touch=1` portrait/landscape visual checks; showcase and profile runs remain tutorial-free unless explicitly overridden.
 - Spoken-guidance tests cover all four tutorial steps, the mission-cue allowlist, original Engine dialogue, the `voidforge-guide-voice` storage contract, once-per-run delivery, and no backlog for muted, disabled, hidden, or unsupported cues.
 - Browser QA must verify the compact Voice controls on first flight and in Help, Sound-master precedence, active-speech cancellation on pause/page hide/game over/Skip/mute/Voice off/teardown, and visible/live-region fallback with speech unavailable.
 
 ## Definition of done
 
-A player can learn the controls through the four-stage guided flight using touch, keyboard, or gamepad alone, optionally hear its original Vesper guide, skip or replay it, locate mineable bodies and loose Flux on the shape-coded scanner, mine and contest resources without a finite-supply softlock, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, counter explicit later-field repairs, read the scored Arena Clear summary, carry the run through four distinct named arena archetypes and two bounded tiers, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, accessibility settings take effect immediately, and the game remains readable at both target resolutions.
+A player can learn the controls through the four-stage guided flight using touch, keyboard, or gamepad alone, optionally hear its original Vesper guide, skip or replay it, locate mineable bodies and loose Flux on the shape-coded scanner, mine and contest resources without a finite-supply softlock, survive construction-aware Sentinel guarding and telegraphed three-shot attacks, build and lose a visible score chain, earn capped extra hulls, witness all 20 construction steps and warning milestones, retain control through Awakening, evade bounded predicted pursuit and the telegraphed disruption wave, destroy the Dread Engine with interceptable Nova Charges, counter explicit later-field repairs, read the scored Arena Clear summary, carry the run through four distinct named arena archetypes and two bounded tiers, lose all hulls, compare the persisted high score, and restart. Keyboard bindings, gamepad calibration, and hold/toggle fire behavior persist beneath safe defaults. Voice state persists beneath the Sound master, suppressed speech never creates a backlog, and all guidance remains available visually and through the live-region fallback. Normal tutorial completion persists without contaminating QA overrides, the browser console is clean, controls work on keyboard, gamepad, and browser-verified touch layouts, M toggles the Sound master, blur safely pauses active play, bounded local lighting reinforces but never replaces shape/text cues, accessibility settings take effect immediately, and the game remains readable at both target resolutions.

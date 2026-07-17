@@ -69,6 +69,12 @@ import {
   selectRadarCandidates,
 } from "./radar-contacts.mjs";
 import {
+  EMISSIVE_LIGHT_KINDS,
+  projectEmissiveLight,
+  resolveEmissiveLightLimit,
+  selectEmissiveLights,
+} from "./emissive-lights.mjs";
+import {
   SENTINEL_ATTACK_PHASES,
   SENTINEL_ROLES,
   advanceSentinelBehavior,
@@ -363,6 +369,8 @@ interface ImpactFx extends Entity {
   startScale: number;
   endScale: number;
   spin: number;
+  lightColor: number;
+  lightForce: number;
 }
 
 interface Wreckage extends Entity {
@@ -1147,8 +1155,8 @@ export function VoidforgeGame() {
 
       const background = new PIXI.Sprite(backgroundTexture) as Sprite;
       background.alpha = 0.64;
-      app.stage.addChild(background);
 
+      const presentationLayer = new PIXI.Container();
       const hazeLayer = new PIXI.Container();
       const starLayer = new PIXI.Container();
       const dustLayer = new PIXI.Container();
@@ -1179,7 +1187,16 @@ export function VoidforgeGame() {
         hostileProjectileLayer,
       ];
       world.addChild(...renderLayers);
-      app.stage.addChild(hazeLayer, starLayer, dustLayer, farDebrisLayer, nearDebrisLayer, world, flashLayer);
+      presentationLayer.addChild(
+        background,
+        hazeLayer,
+        starLayer,
+        dustLayer,
+        farDebrisLayer,
+        nearDebrisLayer,
+        world,
+      );
+      app.stage.addChild(presentationLayer, flashLayer);
 
       const speedLayer = new PIXI.Container();
       const speedStreaks: Graphics[] = [];
@@ -1214,19 +1231,20 @@ export function VoidforgeGame() {
       bossIndicator.circle(-3, 0, 16).stroke({ color: 0xc57bff, width: 1.5, alpha: 0.55 });
       bossIndicator.blendMode = "add";
       bossIndicator.visible = false;
-      const threatPointers: Array<{ view: Graphics; bolt: Graphics; sentinel: Graphics }> = [];
+      const threatPointers: Array<{ view: Container; bolt: Graphics; sentinel: Graphics }> = [];
       for (let index = 0; index < 4; index += 1) {
-        const view = new PIXI.Graphics();
-        view.poly([20, 0, -4, -13, 2, 0, -4, 13])
+        const view = new PIXI.Container();
+        const frame = new PIXI.Graphics();
+        frame.poly([20, 0, -4, -13, 2, 0, -4, 13])
           .fill({ color: 0x050711, alpha: 0.78 })
           .stroke({ color: 0xff9a77, width: 1.6, alpha: 0.92 });
-        view.moveTo(-9, -16).lineTo(8, -16).stroke({ color: 0xc48cff, width: 1.1, alpha: 0.7 });
-        view.moveTo(-9, 16).lineTo(8, 16).stroke({ color: 0xc48cff, width: 1.1, alpha: 0.7 });
+        frame.moveTo(-9, -16).lineTo(8, -16).stroke({ color: 0xc48cff, width: 1.1, alpha: 0.7 });
+        frame.moveTo(-9, 16).lineTo(8, 16).stroke({ color: 0xc48cff, width: 1.1, alpha: 0.7 });
         const bolt = new PIXI.Graphics();
         bolt.poly([6, 0, -5, -5, -1, 0, -5, 5]).fill({ color: 0xff719a, alpha: 0.92 });
         const sentinel = new PIXI.Graphics();
         sentinel.circle(-2, 0, 4).stroke({ color: 0xb987ff, width: 1.3, alpha: 0.88 });
-        view.addChild(bolt, sentinel);
+        view.addChild(frame, bolt, sentinel);
         view.visible = false;
         threatPointers.push({ view, bolt, sentinel });
       }
@@ -1254,12 +1272,13 @@ export function VoidforgeGame() {
         effectIntensity: effectIntensityRef.current,
         reducedMotion: reducedFxRef.current,
         reducedFlashing: reducedFlashingRef.current,
+        highContrast: highContrastRef.current,
         colorProfile: colorModeRef.current,
         chromaticPixels: 2.2,
         heatPixels: 4.2,
       });
-      app.stage.filters = [postFx];
-      app.stage.filterArea = app.screen;
+      presentationLayer.filters = [postFx];
+      presentationLayer.filterArea = app.screen;
 
       const rng = seededRandom(0x0f0a6e);
       const haze: Array<{ view: Graphics; x: number; y: number; factor: number; phase: number; scale: number }> = [];
@@ -1357,6 +1376,7 @@ export function VoidforgeGame() {
       let projectiles: Projectile[] = [];
       let particles: Particle[] = [];
       let impactFx: ImpactFx[] = [];
+      let selectedEmissiveIds: string[] = [];
       let wreckage: Wreckage[] = [];
       let landmarks: Array<{
         view: Container;
@@ -2757,6 +2777,7 @@ export function VoidforgeGame() {
           id: nextId(), x, y, vx: 0, vy: 0, radius: size, view,
           age: 0, lifetime: 0.5 + force * 0.22, startScale: 0.35,
           endScale: 1.8 + force * 0.52, spin: (rng() - 0.5) * 0.8,
+          lightColor: color, lightForce: clamp(Number.isFinite(force) ? force : 1, 0, 2),
         });
       };
 
@@ -2859,6 +2880,7 @@ export function VoidforgeGame() {
         projectiles = [];
         particles = [];
         impactFx = [];
+        selectedEmissiveIds = [];
         wreckage = [];
         landmarks = [];
         playerEchoes = [];
@@ -4879,7 +4901,7 @@ export function VoidforgeGame() {
           : width * 0.5;
         world.position.set(cameraCenterX - cameraX * worldScale + shakeX, cameraCenterY - cameraY * worldScale + shakeY);
 
-        if (app) app.stage.filterArea = app.screen;
+        if (app) presentationLayer.filterArea = app.screen;
         const cssPixels = width * height;
         postFx.resolution = cssPixels >= 7_000_000 ? 0.5 : cssPixels >= 3_500_000 ? 0.67 : 1;
         const projectedBossX = (world.position.x + engine.x * worldScale) / width;
@@ -5089,13 +5111,222 @@ export function VoidforgeGame() {
         const bloom = highContrastRef.current
           ? 0.075
           : clamp(0.13 + (bossOnScreen ? 0.075 : 0) + clamp((particles.length + impactFx.length * 8) / 420, 0, 1) * 0.07, 0.13, 0.27);
+        const emissiveLimit = resolveEmissiveLightLimit({
+          compact: compactViewport,
+          effectIntensity: localEffectIntensity,
+          highContrast: highContrastRef.current,
+        });
+        const emissiveCandidates: Array<NonNullable<ReturnType<typeof projectEmissiveLight>>> = [];
+        if (emissiveLimit > 0) {
+          const projection = {
+            width,
+            height,
+            worldScale,
+            offsetX: world.position.x,
+            offsetY: world.position.y,
+          };
+          const offerEmissive = (
+            id: string,
+            kind: string,
+            worldX: number,
+            worldY: number,
+            radiusWorld: number,
+            intensity: number,
+            color: number,
+            urgency: number,
+            innerRatio = 0.12,
+          ) => {
+            const candidate = projectEmissiveLight({
+              id,
+              kind,
+              worldX,
+              worldY,
+              radiusWorld,
+              intensity,
+              color,
+              urgency,
+              innerRatio,
+            }, projection);
+            if (candidate !== null) emissiveCandidates.push(candidate);
+          };
+
+          // Vesper remains the stable navigation anchor. Recoil and thrust are
+          // monotonic envelopes, never an oscillating light pulse.
+          offerEmissive(
+            `player:${player.id}`,
+            EMISSIVE_LIGHT_KINDS.PLAYER,
+            player.x - Math.cos(player.angle) * 30,
+            player.y - Math.sin(player.angle) * 30,
+            104,
+            clamp(0.4 + speedRatio * 0.34 + player.recoil * 0.16, 0.34, 0.82),
+            0x67eaff,
+            1,
+            0.18,
+          );
+
+          if (!engine.destroyed && bossOnScreen && (engine.active || pieces > 0)) {
+            const damage = 1 - engine.health / RULES.engineHits;
+            const awakening = engine.awakeningRemaining > 0
+              ? 1 - engine.awakeningRemaining / DREAD_ENGINE_AWAKENING_SECONDS
+              : engine.active ? 1 : 0;
+            const disruptionCharge = engine.disruptionChargeRemaining >= 0
+              ? 1 - engine.disruptionChargeRemaining / DISRUPTION_CHARGE_SECONDS
+              : 0;
+            offerEmissive(
+              `boss:${engine.id}`,
+              EMISSIVE_LIGHT_KINDS.BOSS,
+              engine.x,
+              engine.y,
+              engine.radius * (engine.active ? 2.28 : 1.82),
+              clamp(
+                0.16 + assemblyPressure * 0.36 + awakening * 0.22
+                  + disruptionCharge * 0.16 + damage * 0.08,
+                0.12,
+                0.88,
+              ),
+              blendColor(fieldProfile.accentColors.energy, fieldProfile.accentColors.threat, damage * 0.42),
+              engine.active ? 1 : 0.7 + assemblyPressure * 0.24,
+              engine.active ? 0.2 : 0.12,
+            );
+          }
+
+          for (const effect of impactFx) {
+            if (effect.dead) continue;
+            const progress = clamp(effect.age / Math.max(effect.lifetime, 0.001), 0, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            offerEmissive(
+              `impact:${effect.id}`,
+              EMISSIVE_LIGHT_KINDS.IMPACT,
+              effect.x,
+              effect.y,
+              effect.radius * lerp(effect.startScale, effect.endScale, eased) * 0.62,
+              clamp((1 - progress) * effect.lightForce * 0.72, 0, 0.92),
+              effect.lightColor,
+              clamp(0.76 + effect.lightForce * 0.16 + effect.radius / 1800, 0, 1),
+              0.08,
+            );
+          }
+
+          for (const projectile of projectiles) {
+            if (projectile.dead) continue;
+            if (projectile.kind === "nova") {
+              const engineProximity = clamp(1 - distance(projectile.x, projectile.y, engine.x, engine.y) / 1500, 0, 1);
+              offerEmissive(
+                `nova:${projectile.id}`,
+                EMISSIVE_LIGHT_KINDS.NOVA,
+                projectile.x,
+                projectile.y,
+                108,
+                0.62,
+                0xd98cff,
+                0.68 + engineProximity * 0.28,
+                0.16,
+              );
+            } else if (projectile.kind === "bolt") {
+              const playerProximity = clamp(1 - distance(projectile.x, projectile.y, player.x, player.y) / 1200, 0, 1);
+              offerEmissive(
+                `bolt:${projectile.id}`,
+                EMISSIVE_LIGHT_KINDS.HOSTILE_PROJECTILE,
+                projectile.x,
+                projectile.y,
+                54,
+                0.38,
+                0xff6598,
+                0.66 + playerProximity * 0.3,
+                0.2,
+              );
+            }
+          }
+
+          for (const sentinel of sentinels) {
+            if (sentinel.dead || !sentinel.view.visible) continue;
+            const attackCharge = sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.CHARGE
+              ? sentinelPhaseProgress(sentinel.behavior)
+              : sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.BURST ? 1 : 0;
+            const activity = Math.max(attackCharge, clamp(sentinel.shotPulse, 0, 1));
+            if (activity <= 0.03) continue;
+            const accessibleActivity = localReducedFlashing ? Math.max(0.52, attackCharge) : activity;
+            offerEmissive(
+              `sentinel:${sentinel.id}`,
+              EMISSIVE_LIGHT_KINDS.SENTINEL,
+              sentinel.x,
+              sentinel.y,
+              74,
+              0.22 + accessibleActivity * 0.34,
+              0xa879ff,
+              0.54 + accessibleActivity * 0.38,
+              0.16,
+            );
+          }
+
+          for (const planetoid of planetoids) {
+            if (planetoid.dead || planetoid.miningHeat <= 0.02) continue;
+            offerEmissive(
+              `mining:${planetoid.id}`,
+              EMISSIVE_LIGHT_KINDS.MINING,
+              planetoid.x,
+              planetoid.y,
+              planetoid.radius * 1.24,
+              clamp(planetoid.miningHeat * 0.6, 0, 0.62),
+              planetoid.recoverySource ? 0x8fffd6 : 0xffa251,
+              0.56 + planetoid.miningHeat * 0.42,
+              0.16,
+            );
+          }
+
+          for (const fabricator of fabricators) {
+            if (fabricator.dead || !fabricator.carrying || !fabricator.view.visible) continue;
+            const deliveryProximity = clamp(1 - distance(fabricator.x, fabricator.y, engine.x, engine.y) / 1200, 0, 1);
+            offerEmissive(
+              `cargo:${fabricator.id}`,
+              EMISSIVE_LIGHT_KINDS.LOADED_FABRICATOR,
+              fabricator.x,
+              fabricator.y,
+              62,
+              0.36,
+              fieldProfile.accentColors.threat,
+              0.58 + deliveryProximity * 0.28,
+              0.18,
+            );
+          }
+
+          for (const crystal of crystals) {
+            if (crystal.dead || !crystal.view.visible) continue;
+            const playerProximity = clamp(1 - distance(crystal.x, crystal.y, player.x, player.y) / 900, 0, 1);
+            offerEmissive(
+              `crystal:${crystal.id}`,
+              EMISSIVE_LIGHT_KINDS.CRYSTAL,
+              crystal.x,
+              crystal.y,
+              48,
+              tutorialTarget?.id === crystal.id ? 0.38 : 0.25,
+              fieldProfile.accentColors.resource,
+              (tutorialTarget?.id === crystal.id ? 0.82 : 0.36) + playerProximity * 0.18,
+              0.22,
+            );
+          }
+        }
+
+        const selectedEmissiveLights = selectEmissiveLights(emissiveCandidates, {
+          limit: emissiveLimit,
+          previousIds: selectedEmissiveIds,
+        });
+        selectedEmissiveIds = selectedEmissiveLights.map(({ id }) => id);
+        if (runtimeParams.get("profile") === "1") {
+          document.documentElement.dataset.voidforgeLights = JSON.stringify({
+            count: selectedEmissiveLights.length,
+            limit: emissiveLimit,
+            ids: selectedEmissiveIds,
+          });
+        }
         postFx
-          .update(dt)
           .setAccessibility({
             effectIntensity: localEffectIntensity,
             reducedMotion: localReducedFx,
             reducedFlashing: localReducedFlashing,
+            highContrast: highContrastRef.current,
           })
+          .setEmissiveLights(selectedEmissiveLights, { immediate: dt <= 0 })
           .setLevels({ danger, heat, bloom })
           .setHeatSource({
             x: clamp(heatX, 0, 1),
@@ -5110,7 +5341,8 @@ export function VoidforgeGame() {
             radius: 0.015 + shockProgress * 0.34,
             level: localReducedFx || shockProgress >= 1 ? 0 : (1 - shockProgress) * shockwaveForce,
             width: 0.009 + shockProgress * 0.009,
-          });
+          })
+          .update(dt);
 
         hudTimer -= dt;
         if (hudTimer <= 0) {
@@ -5320,6 +5552,7 @@ export function VoidforgeGame() {
           postFx.setAccessibility({ effectIntensity: localEffectIntensity });
         },
         setHighContrast(value) {
+          postFx.setAccessibility({ highContrast: value });
           background.alpha = value ? 0.46 : 0.64;
           hazeLayer.alpha = value ? 0 : 1;
           starLayer.alpha = value ? 1 : 0.82;
@@ -5582,7 +5815,7 @@ export function VoidforgeGame() {
                     )}
                   </div>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.36<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
+                <span className="version-mark">Vesper flight core · build 01.37<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
