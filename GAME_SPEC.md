@@ -1,6 +1,6 @@
 # VOIDFORGE Game Specification
 
-Version: 0.1 · build 01.37
+Version: 0.1 · build 01.38
 Title: **VOIDFORGE**  
 Genre: high-resolution multidirectional arcade shooter
 
@@ -95,6 +95,7 @@ The table lists default bindings. **Help → Control calibration** exposes persi
 - Phone portrait and landscape layouts use safe-area insets, responsive stick placement, and HUD spacing that keeps controls and critical information distinct.
 - Short landscape keeps the arena name and pressure readable at 9px minimum while dropping one redundant secondary modifier when four chips cannot fit safely.
 - Keyboard and gamepad controls remain active when touch controls are available.
+- Touch flight retains six discrete thrust bands but applies a `magnitude^0.72` response curve, 980 acceleration, 1.35 drag, and 12-per-second turn response. Desktop retains 780 acceleration, 1.08 drag, and 9-per-second turn response; both cap at 535 world units per second.
 
 ## First-run tutorial
 
@@ -121,7 +122,7 @@ The normal first run is a short, non-modal guided flight layered over active pla
 - **Primary laser:** rapid precision fire; mines rocks and destroys small enemies but cannot directly damage the Dread Engine.
 - **Mining heat:** hits raise asteroid fracture energy. Hits less than 145 ms apart still add 0.75 extraction progress, allowing held fire to emit shards, but deal two integrity damage instead of one; deliberate pulses add 1.0 progress and preserve more yield. Overloading destroys the rock and any unextracted crystals.
 - **Nova Charge:** consumes one stored charge, acquires the active Dread Engine, and curves toward it. Planetoids, Sentinels, Fabricators, and hostile bolts can intercept it. No target means no launch and no ammo loss.
-- **Damage:** one unshielded hostile projectile or Dread Engine collision costs a hull. Clear audiovisual warnings precede unavoidable high-speed contact.
+- **Damage:** desktop retains one-hit hull loss. On touch-capable mobile play, each hull has three explicitly shown integrity segments; the first two impacts consume one segment, grant 1.1 seconds of protection, and push the Vesper out of continued contact. The third impact costs the hull, and respawn restores all three segments. Clear audiovisual warnings precede unavoidable high-speed contact.
 - **Canonical scoring:** shard +100; unloaded Fabricator +150; loaded Fabricator +250; Sentinel +400; Dread Engine node +750; core +10,000. Destroying an exhausted planetoid retains its small flat +5 award without extending the chain.
 - **Score chain:** a qualifying action awards `round(base points × current multiplier)`, then raises the next-action multiplier by 0.25× up to 5.00× and refreshes a 4.5-second active-play window. Pause and Hull Lost freeze the clock; expiration, Hull Lost, Arena Clear, game over, and a new run reset it to 1.00×. Clear bonuses are never multiplied and never extend the chain.
 - **Extra hulls:** the first arrives at 25,000, then at 75,000 and every additional 50,000 points. Every crossed threshold is consumed atomically, even when Vesper is already at the five-hull cap; score and threshold progress carry between fields.
@@ -136,7 +137,7 @@ Uses a readable state machine: seek loose shard → tether cargo → route to th
 
 ### Sentinel
 
-Selects deterministically among player pressure, Dread Engine/Fabricator guarding, and Nova interception. A live Nova interception is allocated before guard or pressure duty. Construction progress reallocates more of the current Sentinel population toward guards without increasing actor count. Once inside engagement range, each craft follows a 0.9-second approach, 0.42-second visible charge, exactly three shots spaced by 0.12 seconds, and a 0.8-second breakaway before approaching again. Charge marks, shot spacing, and retreat motion provide non-color phase cues.
+Selects deterministically among player pressure, Dread Engine/Fabricator guarding, and Nova interception. A live Nova interception is allocated before guard or pressure duty. Construction progress reallocates more of the current Sentinel population toward guards without increasing actor count. Once inside engagement range, each craft follows a 0.9-second approach, 0.42-second visible charge, exactly three shots spaced by 0.12 seconds, and a 0.8-second breakaway before approaching again. Desktop bolts travel at 385 world units per second from a 1,450-unit engagement range. The touch profile uses 300-unit bolts from 1,100 units and a 1.3× visual scale while retaining the six-unit collision radius. Charge marks, shot spacing, and retreat motion provide non-color phase cues.
 
 ### The Dread Engine
 

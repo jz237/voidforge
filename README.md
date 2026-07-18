@@ -4,7 +4,7 @@
 
 VOIDFORGE is an original, high-resolution multidirectional arcade shooter for desktop and touch-capable browsers. Mine Flux Shards, stop Fabricators from assembling the Dread Engine, retain control through its Awakening, evade predicted pursuit and radial disruption waves, and destroy it with homing Nova Charges.
 
-Current release: **build 01.37**.
+Current release: **build 01.38**.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
@@ -41,7 +41,9 @@ These are the defaults. Every keyboard action can be rebound from **Help → Con
 
 Control calibration is saved locally under `voidforge-input-settings-v1`. Rebinding a key already assigned elsewhere swaps the conflicting slots so controls remain unambiguous. Escape cancels key capture and remains available as the default secondary Pause key through **Restore defaults**. The radial gamepad dead zone is adjustable from 5% to 40% with a 14% default, and primary fire can use either **Hold to fire** or **Press to toggle** across keyboard, gamepad, and touch. **Restore defaults** resets bindings, stick response, and fire behavior together.
 
-On touch-capable phones, the responsive twin-stick layout defaults to left-side thrust and right-side independent aim. The right stick holds or toggles fire according to the saved calibration. Thrust magnitude is quantized into six readable speed bands. **Nova** queues one launch per tap, while **Pause** opens the options overlay; its **Swap** control switches the touch layout to southpaw orientation.
+On touch-capable phones, the responsive twin-stick layout defaults to left-side thrust and right-side independent aim. The right stick holds or toggles fire according to the saved calibration. Thrust still uses six readable speed bands, but a touch-only response curve reaches useful bands earlier; mobile acceleration, braking, and steering response are stronger without changing the 535-unit top speed. **Nova** queues one launch per tap, while **Pause** opens the options overlay; its **Swap** control switches the touch layout to southpaw orientation.
+
+The mobile combat profile slows Sentinel bolts from 385 to 300 world units per second, shortens their player-engagement range from 1,450 to 1,100 units, and renders bolts 30% larger without enlarging their collision radius. Each mobile hull carries three visible shield-integrity segments: the first two impacts trigger 1.1 seconds of protection and push the Vesper clear, while the third costs the hull. Desktop retains its original one-hit hull balance.
 
 Phone portrait and landscape layouts both respect display safe areas, keep the HUD above the controls, and enlarge tutorial text and its Skip/Begin mission actions. Pointer capture preserves a drag that leaves a stick, while pointer cancellation, lost capture, blur, page hide, and orientation changes clear held input. Blur or page hide during play also pauses the game automatically. Keyboard and gamepad input remain available.
 
@@ -65,7 +67,7 @@ Construction warnings escalate at 5, 10, 15, and 19 modules. Nova Charges can be
 
 Qualifying score actions use the multiplier visible beside the score, then increase the next action by 0.25× up to 5.00×. The chain lasts 4.5 active-play seconds; pausing freezes it, while expiration, Hull Lost, Arena Clear, game over, and a new run reset it to 1.00×. The first extra hull is awarded at 25,000 points, then every 50,000 points, with a five-hull cap.
 
-A surviving hit now enters a short **Hull Lost** presentation, preserves score and Nova Charges, and returns Vesper with two seconds of protection. Destroying the Dread Engine enters a 5.5-second **Arena Clear** summary with core points, clear time, time bonus, remaining-hull bonus, field bonus, run total, and any extra-hull award. Score, hulls, charges, extra-hull progress, and the locally persisted high score continue into the next field. The best score is stored as `voidforge-high-score-v1`; showcase, profile, and explicit tutorial-QA URLs do not write it.
+When a hull is lost, a short **Hull Lost** presentation preserves score and Nova Charges, then returns Vesper with two seconds of protection and a fully restored mobile impact shield. Destroying the Dread Engine enters a 5.5-second **Arena Clear** summary with core points, clear time, time bonus, remaining-hull bonus, field bonus, run total, and any extra-hull award. Score, hulls, charges, extra-hull progress, and the locally persisted high score continue into the next field. The best score is stored as `voidforge-high-score-v1`; showcase, profile, and explicit tutorial-QA URLs do not write it.
 
 ## Attract demo and field pressure
 
@@ -85,7 +87,7 @@ The utility bar provides independent reduced-motion and reduced-flashing control
 
 Guide and Engine lines use browser/system speech voices, whose availability and character vary by browser and operating system. VOIDFORGE ships no recorded or reference-derived voice assets.
 
-The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Title, briefing, HUD, and overlay typography use explicit 4K scaling so interface detail retains its 1080p-equivalent apparent size. Compact touch titles wrap their preflight actions without shrinking the 44px targets, while short landscape preserves the arena name and primary pressure modifier before hiding a redundant fourth chip. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K; dense touch combat reports the same p95 at 844×390. Build 01.37 browser QA confirmed the four-light desktop cap, two-light compact cap, clean shader runtime, and unlit FX Off/High Contrast baselines. These remain point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json), [4K](artifacts/performance-3840x2160.json), and [mobile](artifacts/performance-mobile-844x390.json) captures.
+The renderer targets 60 FPS at 1920×1080 and scales responsively through 3840×2160. Title, briefing, HUD, and overlay typography use explicit 4K scaling so interface detail retains its 1080p-equivalent apparent size. Compact touch titles wrap their preflight actions without shrinking the 44px targets, while short landscape preserves the arena name and primary pressure modifier before hiding a redundant fourth chip. The checked-in short bombardment profiles report 60 FPS at both target resolutions and a 16.8 ms p95 frame time at 4K; dense touch combat reports the same p95 at 844×390. Build 01.38 browser QA covers the mobile response, projectile, and three-segment integrity profile; build 01.37 confirmed the four-light desktop cap, two-light compact cap, clean shader runtime, and unlit FX Off/High Contrast baselines. These remain point-in-time ticker samples rather than representative-hardware certification; see the [1080p](artifacts/performance-1920x1080.json), [4K](artifacts/performance-3840x2160.json), and [mobile](artifacts/performance-mobile-844x390.json) captures.
 
 Ordered WebGL layers keep the Vesper, pickups, critical projectiles, and readability cues above atmospheric haze, near/far debris, environmental landmarks, persistent wreckage, terrain, enemies, and decorative effects. Distinct composite, mineral, industrial, and containment material families unify the player, planetoids, enemies, and Dread Engine; prebuilt panel lines, fasteners, mineral inclusions, and conduit traces appear at 4K only when measured render headroom permits. Abandoned rigs, relay screens, wreck lanes, forge rings, and dense fracture belts give every named arena a readable story composition without competing with combat.
 
@@ -108,6 +110,7 @@ Typed spark, shard, smoke, and plasma systems create distinct silhouettes, joine
 - `app/game/field-progression.mjs` — deterministic named-arena cycling with bounded economic, combat, resource, palette, landmark, repair, and HUD profiles
 - `app/game/sentinel-behavior.mjs` — deterministic Sentinel role allocation, construction-driven guarding, and bounded three-shot attack cadence
 - `app/game/input-settings.mjs` — sanitized persisted keyboard bindings, radial gamepad calibration, and merged hold/toggle input routing
+- `app/game/mobile-assist.mjs` — shared touch-capability detection, responsive flight tuning, mobile projectile profile, and deterministic three-segment impact resolution
 - `app/game/resource-liveness.mjs` — deterministic construction/assault Flux-budget accounting and bounded recovery sizing
 - `app/game/radar-contacts.mjs` — deterministic resource-reserving contact priority and player-relative radar projection
 - `app/game/core.mjs` — testable rules for mining, construction, later-field repair policy, homing, collisions, boss damage, and progression

@@ -96,6 +96,12 @@ import {
   reduceInputState,
   sanitizeInputSettings,
 } from "./input-settings.mjs";
+import {
+  applyTouchThrustCurve,
+  resolveFlightProfile,
+  resolveMobileAssistCapability,
+  resolvePlayerImpact,
+} from "./mobile-assist.mjs";
 
 type ScreenMode = "title" | "attract" | "playing" | "paused" | "gameover";
 type AttractPhase = "mining" | "construction" | "pursuit" | "disruption";
@@ -173,6 +179,8 @@ interface HudState {
   multiplier: number;
   chainSecondsRemaining: number;
   lives: number;
+  integrity: number;
+  integrityMax: number;
   charges: number;
   zone: number;
   pieces: number;
@@ -240,6 +248,7 @@ interface TutorialRuntime {
 interface TouchInputState {
   moveX: number;
   moveY: number;
+  moveActive: boolean;
   aimX: number;
   aimY: number;
   firing: boolean;
@@ -268,6 +277,8 @@ interface Entity {
 interface Player extends Entity {
   angle: number;
   invulnerable: number;
+  integrity: number;
+  integrityMax: number;
   engineFlare: Graphics;
   motionStreaks: Container;
   hull: Container;
@@ -495,6 +506,8 @@ const INITIAL_HUD: HudState = {
   multiplier: INITIAL_MULTIPLIER,
   chainSecondsRemaining: 0,
   lives: RULES.playerLives,
+  integrity: 1,
+  integrityMax: 1,
   charges: 0,
   zone: 1,
   pieces: 0,
@@ -534,6 +547,7 @@ function createTouchInput(): TouchInputState {
   return {
     moveX: 0,
     moveY: 0,
+    moveActive: false,
     aimX: 0,
     aimY: 0,
     firing: false,
@@ -544,6 +558,7 @@ function createTouchInput(): TouchInputState {
 function resetTouchInput(input: TouchInputState) {
   input.moveX = 0;
   input.moveY = 0;
+  input.moveActive = false;
   input.aimX = 0;
   input.aimY = 0;
   input.firing = false;
@@ -840,8 +855,16 @@ function HeadsUpDisplay({ hud }: { hud: HudState }) {
             <span className="hud-value amber">{hud.charges.toString().padStart(2, "0")}</span>
           </div>
           <div className="hud-stat">
-            <span className="hud-label">Vesper</span>
-            <span className="hud-value">{Array.from({ length: hud.lives }, () => "◆").join(" ") || "—"}</span>
+            <span className="hud-label">{hud.integrityMax > 1 ? "Shield · hulls" : "Vesper"}</span>
+            <span
+              className="hud-value"
+              aria-label={hud.integrityMax > 1
+                ? `Shield integrity ${hud.integrity} of ${hud.integrityMax}; ${hud.lives} hulls remaining`
+                : `${hud.lives} hulls remaining`}
+            >
+              {hud.integrityMax > 1 ? `${hud.integrity}/${hud.integrityMax} · ` : ""}
+              {Array.from({ length: hud.lives }, () => "◆").join(" ") || "—"}
+            </span>
           </div>
         </div>
       </div>
@@ -901,6 +924,7 @@ export function VoidforgeGame() {
   const helpReturnsToGameRef = useRef(false);
   const gameApiRef = useRef<GameApi>(EMPTY_API);
   const touchInputRef = useRef<TouchInputState>(createTouchInput());
+  const touchCapableRef = useRef(false);
   const tutorialRuntimeRef = useRef<TutorialRuntime>(createTutorialState() as TutorialRuntime);
   const tutorialActiveRef = useRef(false);
   const tutorialPersistRef = useRef(false);
@@ -983,9 +1007,15 @@ export function VoidforgeGame() {
     const coarsePointer = window.matchMedia("(pointer: coarse)");
     const forced = new URLSearchParams(window.location.search).get("touch") === "1";
     const updateCapability = () => {
-      const compactTouchDevice = navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) < 900;
       // The query flag makes deterministic mobile QA possible without changing production defaults.
-      const capable = forced || coarsePointer.matches || compactTouchDevice;
+      const capable = resolveMobileAssistCapability({
+        forced,
+        coarsePointer: coarsePointer.matches,
+        maxTouchPoints: navigator.maxTouchPoints,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+      touchCapableRef.current = capable;
       setTouchCapable(capable);
     };
     updateCapability();
@@ -2320,6 +2350,7 @@ export function VoidforgeGame() {
       };
 
       const createPlayer = (): Player => {
+        const flightProfile = resolveFlightProfile(touchCapableRef.current);
         const {
           container, flare, motionStreaks, hull, portJet, starboardJet,
           shield, muzzleFlash, armorSheen, navLights, wingConduits, afterburnerRing,
@@ -2328,7 +2359,10 @@ export function VoidforgeGame() {
         playerLayer.addChild(container);
         return {
           id: nextId(), x: 4200, y: 3050, vx: 0, vy: 0, radius: 24,
-          angle: 0, invulnerable: 3.5, view: container, engineFlare: flare, motionStreaks,
+          angle: 0, invulnerable: 3.5,
+          integrity: flightProfile.integritySegments,
+          integrityMax: flightProfile.integritySegments,
+          view: container, engineFlare: flare, motionStreaks,
           hull, portJet, starboardJet, shield, muzzleFlash, armorSheen, navLights,
           wingConduits, afterburnerRing, recoil: 0,
         };
@@ -2684,6 +2718,10 @@ export function VoidforgeGame() {
         kind: Projectile["kind"], x: number, y: number, vx: number, vy: number,
       ) => {
         const { container: view, accent, trail } = makeProjectileView(kind);
+        if (kind === "bolt") {
+          const { boltVisualScale } = resolveFlightProfile(touchCapableRef.current);
+          view.scale.set(boltVisualScale);
+        }
         view.position.set(x, y);
         view.rotation = Math.atan2(vy, vx);
         (kind === "bolt" ? hostileProjectileLayer : friendlyProjectileLayer).addChild(view);
@@ -3194,12 +3232,53 @@ export function VoidforgeGame() {
         spawnWreckage(engine.x, engine.y, 0xb978ff, 58, 20, 9.5);
       };
 
-      const killPlayer = () => {
+      const killPlayer = (source?: Entity, forceHullLoss = false) => {
         if (player.invulnerable > 0 || localMode !== "playing") return;
+        const flightProfile = resolveFlightProfile(touchCapableRef.current);
+        const impact = resolvePlayerImpact(player.integrity, player.integrityMax);
+        player.integrity = impact.remainingIntegrity;
+        if (!forceHullLoss && !impact.hullLost) {
+          player.invulnerable = flightProfile.impactGraceSeconds;
+          let awayX = source ? player.x - source.x : Math.cos(player.angle);
+          let awayY = source ? player.y - source.y : Math.sin(player.angle);
+          if (Math.hypot(awayX, awayY) < 1 && source) {
+            awayX = -source.vx;
+            awayY = -source.vy;
+          }
+          const awayMagnitude = Math.max(1, Math.hypot(awayX, awayY));
+          const normalX = awayX / awayMagnitude;
+          const normalY = awayY / awayMagnitude;
+          player.vx = normalX * flightProfile.impactKnockbackSpeed;
+          player.vy = normalY * flightProfile.impactKnockbackSpeed;
+          player.x = clamp(
+            player.x + normalX * flightProfile.impactSeparation,
+            180,
+            RULES.worldWidth - 180,
+          );
+          player.y = clamp(
+            player.y + normalY * flightProfile.impactSeparation,
+            180,
+            RULES.worldHeight - 180,
+          );
+          player.view.position.set(player.x, player.y);
+          shake = Math.max(shake, localReducedFx ? 3 : 11);
+          spawnImpactFx(player.x, player.y, 0x65eaff, 72, 0.54);
+          triggerShockwave(player.x, player.y, 0.32, 0.28);
+          spawnBurst(player.x, player.y, 0x65eaff, 22, 0.52);
+          audio.warning(0.44);
+          notify(
+            `IMPACT SHIELD · ${player.integrity} / ${player.integrityMax}`,
+            true,
+            `${flightProfile.impactGraceSeconds.toFixed(1)}s protection · keep moving`,
+          );
+          refreshHud();
+          return;
+        }
         resetTouchInput(touchInputRef.current);
         routedInputState = createInputState(inputSettingsRef.current.primaryFireMode);
         suppressPressedInputEdges = true;
         arcadeRun = loseHull(arcadeRun);
+        player.integrity = player.integrityMax;
         player.invulnerable = HULL_LOST_SECONDS + RESPAWN_PROTECTION_SECONDS;
         player.vx = 0;
         player.vy = 0;
@@ -3336,6 +3415,8 @@ export function VoidforgeGame() {
           multiplier: arcadeRun.multiplier,
           chainSecondsRemaining: arcadeRun.chainSecondsRemaining,
           lives: arcadeRun.lives,
+          integrity: player.integrity,
+          integrityMax: player.integrityMax,
           charges, zone, pieces, engineHealth: engine.health,
           engineActive: engine.active, contacts, threatLevel, tacticalStatus,
           arenaKey: fieldProfile.arenaKey,
@@ -3541,6 +3622,7 @@ export function VoidforgeGame() {
 
       const configureShowcase = (scene: string) => {
         startGame("disable");
+        const showcaseFlightProfile = resolveFlightProfile(touchCapableRef.current);
         player.invulnerable = 999;
         if (scene === "mining") {
           charges = 5;
@@ -3601,8 +3683,8 @@ export function VoidforgeGame() {
                 "bolt",
                 sentinel.x + Math.cos(aim) * boltOffset,
                 sentinel.y + Math.sin(aim) * boltOffset,
-                Math.cos(aim) * 245,
-                Math.sin(aim) * 245,
+                Math.cos(aim) * showcaseFlightProfile.sentinelBoltSpeed,
+                Math.sin(aim) * showcaseFlightProfile.sentinelBoltSpeed,
               );
               if (index % 3 === 0) {
                 sentinel.health = 1;
@@ -3651,7 +3733,7 @@ export function VoidforgeGame() {
         }
         if (scene === "hull-lost") {
           player.invulnerable = 0;
-          killPlayer();
+          killPlayer(undefined, true);
         }
         if (scene === "gameover") {
           arcadeRun = { ...arcadeRun, lives: 0 };
@@ -3787,6 +3869,7 @@ export function VoidforgeGame() {
         novaCooldown = Math.max(0, novaCooldown - dt);
         player.invulnerable = Math.max(0, player.invulnerable - dt);
         const visualPulse = audio.getVisualPulse(motionClock);
+        const flightProfile = resolveFlightProfile(touchCapableRef.current);
 
         if (hullLostTimer > 0) {
           hullLostTimer = Math.max(0, hullLostTimer - dt);
@@ -3814,9 +3897,11 @@ export function VoidforgeGame() {
 
         const touchInput = touchInputRef.current;
         const touchMoveMagnitude = Math.hypot(touchInput.moveX, touchInput.moveY);
+        let touchMovementSelected = false;
         if (touchMoveMagnitude > Math.hypot(inputX, inputY)) {
           inputX = touchInput.moveX;
           inputY = touchInput.moveY;
+          touchMovementSelected = touchInput.moveActive;
         }
 
         const pad = activeGamepad();
@@ -3835,6 +3920,7 @@ export function VoidforgeGame() {
           if (padMove.magnitude > Math.hypot(inputX, inputY)) {
             inputX = padMove.x;
             inputY = padMove.y;
+            touchMovementSelected = false;
           }
           const padAim = applyGamepadDeadZone(
             pad.axes[2] ?? 0,
@@ -3913,7 +3999,10 @@ export function VoidforgeGame() {
         }
 
         const rawMagnitude = Math.min(1, Math.hypot(inputX, inputY));
-        const band = quantizeThrustMagnitude(rawMagnitude, 6);
+        const thrustMagnitude = touchMovementSelected
+          ? applyTouchThrustCurve(rawMagnitude, flightProfile.thrustExponent)
+          : rawMagnitude;
+        const band = quantizeThrustMagnitude(thrustMagnitude, 6);
         if (tutorialActiveRef.current) {
           player.invulnerable = Math.max(player.invulnerable, 0.45);
           if (band > 0) applyTutorialEvent("player-thrusted");
@@ -3921,7 +4010,7 @@ export function VoidforgeGame() {
         if (rawMagnitude > 0.01) {
           inputX /= rawMagnitude;
           inputY /= rawMagnitude;
-          const acceleration = 780 * band;
+          const acceleration = flightProfile.acceleration * band;
           player.vx += inputX * acceleration * dt;
           player.vy += inputY * acceleration * dt;
         }
@@ -3931,13 +4020,13 @@ export function VoidforgeGame() {
           let diff = targetAngle - player.angle;
           while (diff > Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
-          player.angle += diff * Math.min(1, dt * 9);
+          player.angle += diff * Math.min(1, dt * flightProfile.turnResponse);
         }
-        const drag = Math.exp(-1.08 * dt);
+        const drag = Math.exp(-flightProfile.drag * dt);
         player.vx *= drag;
         player.vy *= drag;
         const speed = Math.hypot(player.vx, player.vy);
-        const maxSpeed = 535;
+        const maxSpeed = flightProfile.maxSpeed;
         if (speed > maxSpeed) {
           player.vx = (player.vx / speed) * maxSpeed;
           player.vy = (player.vy / speed) * maxSpeed;
@@ -3968,11 +4057,14 @@ export function VoidforgeGame() {
         player.afterburnerRing.alpha = fast * (0.42 + visualPulse * 0.28) * localEffectIntensity;
         player.afterburnerRing.scale.set(0.78 + fast * 0.56, 0.86 + fast * 0.18);
         player.wingConduits.alpha = 0.42 + band * 0.32 + visualPulse * 0.18;
-        player.shield.visible = player.invulnerable > 0;
+        const integrityShieldActive = player.integrityMax > 1 && player.integrity > 0;
+        player.shield.visible = player.invulnerable > 0 || integrityShieldActive;
         player.shield.rotation = localReducedFx ? 0.08 : motionClock * 0.72;
         player.shield.alpha = player.invulnerable > 0
           ? localReducedFlashing ? 0.58 : 0.56 + Math.sin(motionClock * 5.2) * 0.12
-          : 0;
+          : integrityShieldActive
+            ? 0.12 + (player.integrity / player.integrityMax) * 0.09
+            : 0;
         player.shield.scale.set(0.96 + Math.min(player.invulnerable, 1) * 0.035);
         player.armorSheen.alpha = 0.32 + band * 0.34;
         player.navLights.alpha = localReducedFlashing ? 0.72 : 0.62 + Math.sin(motionClock * 4.4) * 0.26;
@@ -4214,7 +4306,7 @@ export function VoidforgeGame() {
           const attackDx = attackTarget.x - sentinel.x;
           const attackDy = attackTarget.y - sentinel.y;
           const attackDistance = Math.max(1, Math.hypot(attackDx, attackDy));
-          const engageRange = novaTarget ? 980 : 1450;
+          const engageRange = novaTarget ? 980 : flightProfile.sentinelEngageRange;
           const behaviorDelta = sentinel.behavior.phase === SENTINEL_ATTACK_PHASES.APPROACH
             && attackDistance > engageRange
             ? 0
@@ -4253,7 +4345,13 @@ export function VoidforgeGame() {
           for (const shotEvent of behaviorUpdate.shotEvents) {
             const spread = (shotEvent.burstIndex - 2) * 0.055;
             const aim = Math.atan2(attackTarget.y - sentinel.y, attackTarget.x - sentinel.x) + spread;
-            spawnProjectile("bolt", sentinel.x, sentinel.y, Math.cos(aim) * 385, Math.sin(aim) * 385);
+            spawnProjectile(
+              "bolt",
+              sentinel.x,
+              sentinel.y,
+              Math.cos(aim) * flightProfile.sentinelBoltSpeed,
+              Math.sin(aim) * flightProfile.sentinelBoltSpeed,
+            );
             sentinel.shotPulse = 1;
           }
           let bankAngle = Math.atan2(sentinel.vy, sentinel.vx) - sentinel.view.rotation;
@@ -4330,7 +4428,7 @@ export function VoidforgeGame() {
             );
             engine.x = clamp(engine.x + engine.vx * dt, 220, RULES.worldWidth - 220);
             engine.y = clamp(engine.y + engine.vy * dt, 220, RULES.worldHeight - 220);
-            if (circlesOverlap(player, engine)) killPlayer();
+            if (circlesOverlap(player, engine)) killPlayer(engine);
 
             if (engine.disruptionAge >= 0) {
               const previousRadius = lerp(
@@ -4353,7 +4451,7 @@ export function VoidforgeGame() {
                 )
               ) {
                 engine.disruptionHit = true;
-                killPlayer();
+                killPlayer(engine);
               }
               if (engine.disruptionAge >= DISRUPTION_DURATION_SECONDS) {
                 engine.disruptionAge = -1;
@@ -4535,7 +4633,7 @@ export function VoidforgeGame() {
           if (projectile.kind === "bolt") {
             if (circlesOverlap(projectile, player)) {
               projectile.dead = true;
-              killPlayer();
+              killPlayer(projectile);
             }
             continue;
           }
@@ -5617,9 +5715,10 @@ export function VoidforgeGame() {
   const intensityLabel = effectIntensity === 1 ? "Full" : effectIntensity === 0.7 ? "Balanced" : effectIntensity === 0.35 ? "Low" : "Off";
   const colorLabel = colorMode === "standard" ? "Standard" : colorMode.slice(0, 4).toUpperCase();
 
-  const updateTouchMove = (x: number, y: number) => {
+  const updateTouchMove = (x: number, y: number, active: boolean) => {
     touchInputRef.current.moveX = x;
     touchInputRef.current.moveY = y;
+    touchInputRef.current.moveActive = active;
     if (Math.hypot(x, y) > 0.1) gameApiRef.current.tutorialEvent("player-thrusted");
   };
 
@@ -5815,7 +5914,7 @@ export function VoidforgeGame() {
                     )}
                   </div>
                 )}
-                <span className="version-mark">Vesper flight core · build 01.37<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
+                <span className="version-mark">Vesper flight core · build 01.38<br />High score {formatScore(hud.highScore)} · demo after 10s idle</span>
               </div>
               {tutorialRecommended && (
                 <p className="first-flight-note">New pilot · a short guided flight with optional voice teaches movement, mining, Flux, and the Dread Engine.</p>
@@ -5856,7 +5955,7 @@ export function VoidforgeGame() {
               hint="Move"
               tone="thrust"
               onEngage={() => gameApiRef.current.unlockAudio()}
-              onVector={(x, y) => updateTouchMove(x, y)}
+              onVector={updateTouchMove}
             />
             <TouchStick
               label="Aim"

@@ -31,7 +31,7 @@ test("server-renders the VOIDFORGE launch screen", async () => {
 });
 
 test("ships the game, closed Flux economy, tactical scanner, procedural audio, high-resolution art, and no starter preview", async () => {
-  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, fieldProgression, radarContacts, emissiveLights, audio, styles, layout, packageJson] = await Promise.all([
+  const [component, tutorial, guidance, arcadeRun, sentinelBehavior, inputSettings, resourceLiveness, fieldProgression, radarContacts, emissiveLights, mobileAssist, audio, styles, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/game/VoidforgeGame.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/tutorial.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/spoken-guidance.mjs", import.meta.url), "utf8"),
@@ -42,6 +42,7 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
     readFile(new URL("../app/game/field-progression.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/radar-contacts.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/emissive-lights.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/mobile-assist.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/game/audio.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -89,7 +90,11 @@ test("ships the game, closed Flux economy, tactical scanner, procedural audio, h
   assert.match(component, /field-modifier-detail/);
   assert.match(component, /detail \? 4700 : 2850/);
   assert.match(component, /pressure tier/);
-  assert.match(component, /build 01\.37/);
+  assert.match(component, /build 01\.38/);
+  assert.match(component, /resolveFlightProfile/);
+  assert.match(component, /Shield · hulls/);
+  assert.match(mobileAssist, /sentinelBoltSpeed: 300/);
+  assert.match(mobileAssist, /integritySegments: 3/);
   assert.match(component, /selectEmissiveLights/);
   assert.match(component, /presentationLayer\.filters = \[postFx\]/);
   assert.match(component, /Control calibration/);

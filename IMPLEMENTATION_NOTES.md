@@ -131,6 +131,13 @@ These are system-level starting points. Names, audiovisual expression, exact tun
 
 ## Current release scope
 
+Shipped in build 01.38:
+
+- A mobile-only flight response profile that preserves six thrust bands and the 535-unit top speed while reaching useful partial-stick bands earlier, accelerating more promptly, braking more cleanly, and turning faster
+- Mobile Sentinel bolts reduced from 385 to 300 world units per second, fired from a 1,100-unit rather than 1,450-unit player-engagement range, and drawn 30% larger without increasing collision radius
+- Three visible shield-integrity segments per mobile hull; two absorbed impacts each provide 1.1 seconds of grace and separating knockback before the third impact enters the existing Hull Lost flow
+- Deterministic capability, tuning, thrust-curve, projectile-range, and three-impact damage tests with desktop legacy values locked
+
 Shipped in build 01.37:
 
 - Ambient title screen and instructions plus a silent, non-scoring attract demonstration after 10 idle seconds, with deterministic mining, construction, pursuit, and disruption phases and immediate fresh-run takeover
