@@ -8,6 +8,8 @@ Current release: **build 01.38**.
 
 All artwork, silhouettes, names, dialogue, procedural audio, music, and code are original. The clean-room design boundaries are documented in [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md).
 
+**Play online:** [voidforge.jez237.com](https://voidforge.jez237.com/)
+
 ## Play locally
 
 Requires Node.js 22.13 or newer.
@@ -22,6 +24,12 @@ Open the local URL printed by Vite. For a production build:
 ```bash
 npm run build
 npm run start
+```
+
+The production site runs as a Cloudflare Worker on `voidforge.jez237.com`:
+
+```bash
+npm run deploy
 ```
 
 ## Controls
